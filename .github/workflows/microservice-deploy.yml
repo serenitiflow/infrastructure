@@ -57,6 +57,11 @@ on:
         required: false
         type: string
         default: 'us-east-1'
+      k8s-manifest-path:
+        description: 'Path to Kubernetes manifests for kubectl apply'
+        required: false
+        type: string
+        default: 'config/k8s/'
     secrets:
       coolify-url-dev:
         description: 'Coolify development instance URL'
@@ -787,7 +792,7 @@ jobs:
       - name: Apply Kubernetes manifests
         run: |
           echo "Applying manifests from config/k8s/..."
-          kubectl apply -f config/k8s/
+          kubectl apply -f ${{ inputs.k8s-manifest-path }}
 
       - name: Deploy to EKS
         id: deploy
