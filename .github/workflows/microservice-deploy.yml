@@ -1,0 +1,845 @@
+name: Microservice Deploy (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: 'Service identifier (kebab-case, e.g., platform-user-service)'
+        required: true
+        type: string
+      java-version:
+        description: 'Java version for Gradle build'
+        required: false
+        type: string
+        default: '17'
+      java-distribution:
+        description: 'JDK distribution'
+        required: false
+        type: string
+        default: 'temurin'
+      health-check-path:
+        description: 'Health check endpoint path'
+        required: false
+        type: string
+        default: '/actuator/health'
+      info-endpoint-path:
+        description: 'Version info endpoint path'
+        required: false
+        type: string
+        default: '/actuator/info'
+      deploy-timeout-minutes:
+        description: 'Deployment wait timeout in minutes'
+        required: false
+        type: number
+        default: 10
+      health-check-timeout-minutes:
+        description: 'Health check timeout in minutes'
+        required: false
+        type: number
+        default: 5
+      eks-cluster-dev:
+        description: 'EKS cluster name for dev'
+        required: false
+        type: string
+        default: 'serenity-dev-cluster'
+      eks-cluster-prod:
+        description: 'EKS cluster name for prod'
+        required: false
+        type: string
+        default: 'serenity-prod-cluster'
+      eks-namespace:
+        description: 'Kubernetes namespace'
+        required: false
+        type: string
+        default: 'dev-serenity'
+      eks-aws-region:
+        description: 'AWS region for EKS'
+        required: false
+        type: string
+        default: 'us-east-1'
+    secrets:
+      coolify-url-dev:
+        description: 'Coolify development instance URL'
+        required: true
+      coolify-api-token-dev:
+        description: 'Coolify API token for development'
+        required: true
+      coolify-app-uuid-dev:
+        description: 'Application UUID in Coolify for development'
+        required: true
+      service-url-dev:
+        description: 'Service public URL for development health checks'
+        required: false
+      coolify-url-prod:
+        description: 'Coolify production instance URL'
+        required: true
+      coolify-api-token-prod:
+        description: 'Coolify API token for production'
+        required: true
+      coolify-app-uuid-prod:
+        description: 'Application UUID in Coolify for production'
+        required: true
+      service-url-prod:
+        description: 'Service public URL for production health checks'
+        required: false
+      github-token:
+        description: 'GitHub token for package authentication'
+        required: true
+      aws-access-key-id:
+        description: 'AWS access key ID for EKS'
+        required: true
+      aws-secret-access-key:
+        description: 'AWS secret access key for EKS'
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  COOLIFY_URL_DEV: ${{ vars.COOLIFY_URL_DEV || secrets.coolify-url-dev }}
+  COOLIFY_URL_PROD: ${{ vars.COOLIFY_URL_PROD || secrets.coolify-url-prod }}
+  COOLIFY_APP_UUID_DEV: ${{ vars.COOLIFY_APP_UUID_DEV || secrets.coolify-app-uuid-dev }}
+  COOLIFY_APP_UUID_PROD: ${{ vars.COOLIFY_APP_UUID_PROD || secrets.coolify-app-uuid-prod }}
+  SERVICE_URL_DEV: ${{ vars.SERVICE_URL_DEV || secrets.service-url-dev }}
+  SERVICE_URL_PROD: ${{ vars.SERVICE_URL_PROD || secrets.service-url-prod }}
+
+jobs:
+  # -----------------------------------------------------------------------------
+  # Validate Secrets and Configuration
+  # -----------------------------------------------------------------------------
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      validation-passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Validate required secrets
+        id: check
+        run: |
+          echo "Validating required configuration..."
+
+          errors=0
+
+          # Check GitHub Token (should always be available)
+          if [ -z "${{ secrets.GITHUB_TOKEN }}" ]; then
+            echo "ERROR: GITHUB_TOKEN is not available"
+            errors=$((errors + 1))
+          else
+            echo "✓ GITHUB_TOKEN is available"
+          fi
+
+          # For non-PR builds, check if we can push to registry
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            if [ -z "${{ secrets.GH_PAT }}" ] && [ -z "${{ secrets.GITHUB_TOKEN }}" ]; then
+              echo "⚠ WARNING: Neither GH_PAT nor GITHUB_TOKEN available for package access"
+            else
+              echo "✓ Package access token is available"
+            fi
+          fi
+
+          if [ $errors -gt 0 ]; then
+            echo ""
+            echo "Validation failed with $errors error(s)"
+            exit 1
+          fi
+
+          echo "✓ All validations passed"
+          echo "passed=true" >> $GITHUB_OUTPUT
+
+  # -----------------------------------------------------------------------------
+  # Build and Test
+  # -----------------------------------------------------------------------------
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      short-sha: ${{ steps.version.outputs.short-sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: ${{ inputs.java-distribution }}
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/build.gradle') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Calculate version
+        id: version
+        run: |
+          SHORT_SHA=$(echo '${{ github.sha }}' | cut -c1-7)
+          VERSION="0.0.1-${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short-sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Building with version: ${VERSION}"
+
+      - name: Build with Gradle
+        run: ./gradlew compileJava compileTestJava --no-daemon
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.github-token }}
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.github-token }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.service-name }}
+          path: build/reports/tests/
+          retention-days: 7
+
+  # -----------------------------------------------------------------------------
+  # Build and Push Docker Image
+  # -----------------------------------------------------------------------------
+  build-image:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ github.sha }}
+      image-full-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      version: ${{ steps.calc-version.outputs.version }}
+      short-sha: ${{ steps.calc-version.outputs.short-sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Calculate version
+        id: calc-version
+        run: |
+          SHORT_SHA=$(echo '${{ github.sha }}' | cut -c1-7)
+          VERSION="0.0.1-${SHORT_SHA}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short-sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "Building with version: ${VERSION}"
+
+      - name: Build Docker image
+        run: |
+          VERSION="${{ steps.calc-version.outputs.version }}"
+          echo "Building with version: $VERSION"
+
+          docker build \
+            --build-arg GITHUB_ACTOR=${{ github.actor }} \
+            --build-arg GITHUB_TOKEN=${{ secrets.github-token }} \
+            --build-arg VERSION=$VERSION \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build-${{ github.run_number }} .
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push Docker image
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Pushing Docker images to registry..."
+
+          # Push the SHA-tagged image
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          echo "✓ Pushed: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          # Tag and push with branch name
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          echo "✓ Pushed: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+
+          # Tag with 'latest' if on main/master
+          if [[ "${{ github.ref_name }}" == "main" || "${{ github.ref_name }}" == "master" ]]; then
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            echo "✓ Pushed: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          fi
+
+          # Tag with version if it's a tag
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}
+            echo "✓ Pushed: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+          fi
+
+  # -----------------------------------------------------------------------------
+  # Deploy to Development Environment (Coolify)
+  # -----------------------------------------------------------------------------
+  deploy-dev:
+    name: Deploy to Development
+    needs: build-image
+    if: |
+      github.event_name != 'pull_request' && (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development')
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Validate Development Secrets
+        run: |
+          echo "Validating Coolify development configuration..."
+
+          errors=0
+
+          if [ -z "${{ env.COOLIFY_URL_DEV }}" ]; then
+            echo "ERROR: COOLIFY_URL_DEV variable/secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ COOLIFY_URL_DEV is configured"
+          fi
+
+          if [ -z "${{ secrets.coolify-api-token-dev }}" ]; then
+            echo "ERROR: coolify-api-token-dev secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ coolify-api-token-dev is configured"
+          fi
+
+          if [ -z "${{ env.COOLIFY_APP_UUID_DEV }}" ]; then
+            echo "ERROR: COOLIFY_APP_UUID_DEV variable/secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ COOLIFY_APP_UUID_DEV is configured"
+          fi
+
+          if [ $errors -gt 0 ]; then
+            echo ""
+            echo "Validation failed with $errors error(s)"
+            exit 1
+          fi
+
+          echo "✓ All development environment validations passed"
+
+      - name: Trigger Coolify Development Deployment
+        id: deploy
+        run: |
+          COOLIFY_URL="${{ env.COOLIFY_URL_DEV }}"
+          COOLIFY_API_TOKEN="${{ secrets.coolify-api-token-dev }}"
+          COOLIFY_APP_UUID="${{ env.COOLIFY_APP_UUID_DEV }}"
+
+          echo "Triggering Coolify development deployment..."
+          echo ""
+          echo "Deployment Details:"
+          echo "  Environment: Development"
+          echo "  Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Branch: ${{ github.ref_name }}"
+          echo "  App UUID: $COOLIFY_APP_UUID"
+          echo ""
+
+          # First check if Coolify is reachable
+          echo "Checking connectivity to $COOLIFY_URL..."
+          if ! curl -sL --max-time 10 -o /dev/null "$COOLIFY_URL"; then
+            echo ""
+            echo "ERROR: Cannot reach Coolify instance at $COOLIFY_URL"
+            exit 1
+          fi
+
+          HTTP_CODE=$(curl -sL --max-time 30 -o /tmp/coolify_response.json -w "%{http_code}" -X POST \
+            "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID/restart" \
+            -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+            -H "Content-Type: application/json")
+
+          echo "API Response Code: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "202" ]; then
+            echo "Development deployment triggered successfully (HTTP $HTTP_CODE)"
+            cat /tmp/coolify_response.json
+            echo "url=$COOLIFY_URL" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: Coolify API returned HTTP $HTTP_CODE"
+            cat /tmp/coolify_response.json
+            exit 1
+          fi
+
+      - name: Wait for Development Deployment
+        timeout-minutes: ${{ inputs.deploy-timeout-minutes }}
+        run: |
+          COOLIFY_URL="${{ env.COOLIFY_URL_DEV }}"
+          COOLIFY_API_TOKEN="${{ secrets.coolify-api-token-dev }}"
+          COOLIFY_APP_UUID="${{ env.COOLIFY_APP_UUID_DEV }}"
+
+          echo "Waiting for development deployment to complete..."
+          echo ""
+
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID" 2>/dev/null || echo '{"status": "unknown"}')
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+
+            case "$STATUS" in
+              "running"|"running:"*)
+                echo "Development deployment completed successfully! (status: $STATUS)"
+                exit 0
+                ;;
+              "error"|"failed")
+                echo "Development deployment failed!"
+                echo "Response: $RESPONSE"
+                exit 1
+                ;;
+              "building"|"deploying")
+                echo "Deployment in progress... ($STATUS) - attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+                ;;
+              *)
+                echo "Waiting for deployment... (status: $STATUS) - attempt $((RETRY_COUNT+1))/$MAX_RETRIES"
+                ;;
+            esac
+
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 10
+          done
+
+          echo "Deployment status check timed out after $((MAX_RETRIES * 10)) seconds"
+
+      - name: Wait for Container Startup
+        run: |
+          echo "Waiting for new container to fully start and serve traffic..."
+          sleep 15
+          echo "Proceeding with health verification"
+
+      - name: Verify Application Health (Development)
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          SERVICE_URL="${{ env.SERVICE_URL_DEV }}"
+
+          if [ -z "$SERVICE_URL" ]; then
+            echo "WARNING: service-url-dev is not set. Skipping health verification."
+            exit 0
+          fi
+
+          echo "Verifying application health at $SERVICE_URL${{ inputs.health-check-path }}..."
+          echo ""
+
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /tmp/health_response.json -w "%{http_code}" "$SERVICE_URL${{ inputs.health-check-path }}" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              STATUS=$(jq -r '.status // "unknown"' /tmp/health_response.json 2>/dev/null || echo "unknown")
+            else
+              STATUS="unknown"
+            fi
+
+            if [ "$STATUS" = "UP" ]; then
+              echo "✓ Application health check passed!"
+              cat /tmp/health_response.json
+              exit 0
+            fi
+
+            echo "Health check attempt $((RETRY_COUNT+1))/$MAX_RETRIES: status=$STATUS"
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 2
+          done
+
+          echo "ERROR: Application health check failed after $MAX_RETRIES attempts"
+          exit 1
+
+      - name: Verify Deployed Version (Development)
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          SERVICE_URL="${{ env.SERVICE_URL_DEV }}"
+
+          if [ -z "$SERVICE_URL" ]; then
+            echo "WARNING: service-url-dev is not set. Skipping version verification."
+            exit 0
+          fi
+
+          # Use the same version that was built into the image
+          EXPECTED_VERSION="${{ needs.build-image.outputs.version }}"
+          EXPECTED_SHA_SHORT="${{ needs.build-image.outputs.short-sha }}"
+          echo "Waiting for correct version to be deployed..."
+          echo "Expected version: $EXPECTED_VERSION"
+          echo "Expected SHA: $EXPECTED_SHA_SHORT"
+          echo ""
+
+          MAX_RETRIES=60
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /tmp/info_response.json -w "%{http_code}" "$SERVICE_URL${{ inputs.info-endpoint-path }}" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              DEPLOYED_VERSION=$(jq -r '.build.version // "unknown"' /tmp/info_response.json 2>/dev/null || echo "unknown")
+            else
+              DEPLOYED_VERSION="unknown"
+            fi
+
+            DEPLOYED_SHA_SHORT=$(echo "$DEPLOYED_VERSION" | grep -oE '[a-f0-9]{7}$' || echo "")
+
+            if [ "$DEPLOYED_VERSION" = "$EXPECTED_VERSION" ] || [ "$DEPLOYED_SHA_SHORT" = "$EXPECTED_SHA_SHORT" ]; then
+              echo "✓ Version verification passed!"
+              echo "  Deployed SHA matches expected commit: $EXPECTED_SHA_SHORT"
+              echo "  Full version: $DEPLOYED_VERSION"
+              exit 0
+            fi
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "Version check attempt $((RETRY_COUNT+1))/$MAX_RETRIES: HTTP $HTTP_CODE"
+            else
+              echo "Version check attempt $((RETRY_COUNT+1))/$MAX_RETRIES:"
+              echo "  Current version: $DEPLOYED_VERSION (SHA: $DEPLOYED_SHA_SHORT)"
+              echo "  Waiting for:   $EXPECTED_VERSION"
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 5
+          done
+
+          echo "ERROR: Version verification timed out"
+          exit 1
+
+      - name: Development Deployment Summary
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================"
+          echo "           Development Deployment Summary                   "
+          echo "============================================================"
+          echo ""
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Version: ${{ needs.build-image.outputs.version }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo ""
+
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✓ Development deployment completed successfully!"
+          else
+            echo "✗ Development deployment failed or was cancelled"
+          fi
+          echo ""
+
+  # -----------------------------------------------------------------------------
+  # Deploy to Production Environment (Coolify)
+  # -----------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to Production
+    needs: build-image
+    if: |
+      github.event_name != 'pull_request' && (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Validate Production Secrets
+        run: |
+          echo "Validating Coolify production configuration..."
+
+          errors=0
+
+          if [ -z "${{ env.COOLIFY_URL_PROD }}" ]; then
+            echo "ERROR: COOLIFY_URL_PROD variable/secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ COOLIFY_URL_PROD is configured"
+          fi
+
+          if [ -z "${{ secrets.coolify-api-token-prod }}" ]; then
+            echo "ERROR: coolify-api-token-prod secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ coolify-api-token-prod is configured"
+          fi
+
+          if [ -z "${{ env.COOLIFY_APP_UUID_PROD }}" ]; then
+            echo "ERROR: COOLIFY_APP_UUID_PROD variable/secret is not set!"
+            errors=$((errors + 1))
+          else
+            echo "✓ COOLIFY_APP_UUID_PROD is configured"
+          fi
+
+          if [ $errors -gt 0 ]; then
+            echo "Validation failed with $errors error(s)"
+            exit 1
+          fi
+
+          echo "✓ All production environment validations passed"
+
+      - name: Trigger Coolify Production Deployment
+        id: deploy
+        run: |
+          COOLIFY_URL="${{ env.COOLIFY_URL_PROD }}"
+          COOLIFY_API_TOKEN="${{ secrets.coolify-api-token-prod }}"
+          COOLIFY_APP_UUID="${{ env.COOLIFY_APP_UUID_PROD }}"
+
+          echo "Triggering Coolify production deployment..."
+          echo "Environment: Production"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "App UUID: $COOLIFY_APP_UUID"
+
+          if ! curl -sL --max-time 10 -o /dev/null "$COOLIFY_URL"; then
+            echo "ERROR: Cannot reach Coolify instance at $COOLIFY_URL"
+            exit 1
+          fi
+
+          HTTP_CODE=$(curl -sL --max-time 30 -o /dev/null -w "%{http_code}" -X POST \
+            "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID/start" \
+            -H "Authorization: Bearer $COOLIFY_API_TOKEN")
+
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "202" ]; then
+            echo "Production deployment triggered successfully (HTTP $HTTP_CODE)"
+            echo "url=$COOLIFY_URL" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: Coolify API returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Wait for Production Deployment
+        timeout-minutes: ${{ inputs.deploy-timeout-minutes }}
+        run: |
+          COOLIFY_URL="${{ env.COOLIFY_URL_PROD }}"
+          COOLIFY_API_TOKEN="${{ secrets.coolify-api-token-prod }}"
+          COOLIFY_APP_UUID="${{ env.COOLIFY_APP_UUID_PROD }}"
+
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -s -H "Authorization: Bearer $COOLIFY_API_TOKEN" \
+              "$COOLIFY_URL/api/v1/applications/$COOLIFY_APP_UUID" 2>/dev/null || echo '{"status": "unknown"}')
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+
+            case "$STATUS" in
+              "running"|"running:"*)
+                echo "Production deployment completed! (status: $STATUS)"
+                exit 0
+                ;;
+              "error"|"failed")
+                echo "Production deployment failed!"
+                exit 1
+                ;;
+            esac
+
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 10
+          done
+
+          echo "Deployment status check timed out"
+
+      - name: Wait for Container Startup
+        run: |
+          echo "Waiting for new container to fully start and serve traffic..."
+          sleep 15
+          echo "Proceeding with health verification"
+
+      - name: Verify Application Health (Production)
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          SERVICE_URL="${{ env.SERVICE_URL_PROD }}"
+          if [ -z "$SERVICE_URL" ]; then
+            echo "WARNING: Skipping health verification - service-url-prod not set"
+            exit 0
+          fi
+
+          MAX_RETRIES=30
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "$SERVICE_URL${{ inputs.health-check-path }}" 2>/dev/null || echo "000")
+            STATUS=$(jq -r '.status // "unknown"' /tmp/health.json 2>/dev/null || echo "unknown")
+
+            if [ "$STATUS" = "UP" ]; then
+              echo "✓ Health check passed!"
+              exit 0
+            fi
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 2
+          done
+          exit 1
+
+      - name: Verify Deployed Version (Production)
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          SERVICE_URL="${{ env.SERVICE_URL_PROD }}"
+          if [ -z "$SERVICE_URL" ]; then
+            echo "WARNING: Skipping version verification"
+            exit 0
+          fi
+
+          # Use the same version that was built into the image
+          EXPECTED_VERSION="${{ needs.build-image.outputs.version }}"
+          EXPECTED_SHA_SHORT="${{ needs.build-image.outputs.short-sha }}"
+          echo "Waiting for correct version to be deployed..."
+          echo "Expected version: $EXPECTED_VERSION"
+          echo "Expected SHA: $EXPECTED_SHA_SHORT"
+          echo ""
+
+          MAX_RETRIES=60
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            HTTP_CODE=$(curl -s -o /tmp/info.json -w "%{http_code}" "$SERVICE_URL${{ inputs.info-endpoint-path }}" 2>/dev/null || echo "000")
+            DEPLOYED_VERSION=$(jq -r '.build.version // "unknown"' /tmp/info.json 2>/dev/null || echo "unknown")
+            DEPLOYED_SHA_SHORT=$(echo "$DEPLOYED_VERSION" | grep -oE '[a-f0-9]{7}$' || echo "")
+
+            if [ "$DEPLOYED_VERSION" = "$EXPECTED_VERSION" ] || [ "$DEPLOYED_SHA_SHORT" = "$EXPECTED_SHA_SHORT" ]; then
+              echo "✓ Version verification passed! SHA: $EXPECTED_SHA_SHORT"
+              echo "  Full version: $DEPLOYED_VERSION"
+              exit 0
+            fi
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "Version check attempt $((RETRY_COUNT+1))/$MAX_RETRIES: HTTP $HTTP_CODE"
+            else
+              echo "Version check attempt $((RETRY_COUNT+1))/$MAX_RETRIES:"
+              echo "  Current version: $DEPLOYED_VERSION (SHA: $DEPLOYED_SHA_SHORT)"
+              echo "  Waiting for:   $EXPECTED_VERSION"
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT+1))
+            sleep 5
+          done
+
+          echo "ERROR: Version verification timed out"
+          exit 1
+
+      - name: Production Deployment Summary
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "           Production Deployment Summary                    "
+          echo "============================================================"
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "Version: ${{ needs.build-image.outputs.version }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✓ Production deployment completed successfully!"
+          else
+            echo "✗ Production deployment failed"
+          fi
+
+  # -----------------------------------------------------------------------------
+  # Deploy to Development Environment (EKS)
+  # -----------------------------------------------------------------------------
+  deploy-dev-eks:
+    name: Deploy to Development (EKS)
+    needs: build-image
+    if: |
+      github.event_name != 'pull_request' && (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development')
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.eks-aws-region }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ inputs.eks-cluster-dev }} --region ${{ inputs.eks-aws-region }}
+          echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-dev }}"
+
+      - name: Apply Kubernetes manifests
+        run: |
+          echo "Applying manifests from config/k8s/..."
+          kubectl apply -f config/k8s/
+
+      - name: Deploy to EKS
+        id: deploy
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.service-name }}"
+          NAMESPACE="${{ inputs.eks-namespace }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          echo "Deploying to EKS..."
+          echo "  Deployment: $DEPLOYMENT_NAME"
+          echo "  Namespace:  $NAMESPACE"
+          echo "  Image:      $IMAGE"
+          echo "  Cluster:    ${{ inputs.eks-cluster-dev }}"
+          echo ""
+
+          # Restart deployment to pull new latest image
+          kubectl rollout restart deployment/$DEPLOYMENT_NAME -n $NAMESPACE
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n $NAMESPACE --timeout=${{ inputs.deploy-timeout-minutes }}m
+
+          echo "✓ EKS deployment completed"
+          echo "url=https://api-dev.serenityflow.io" >> $GITHUB_OUTPUT
+
+      - name: Verify EKS Deployment Health
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.service-name }}"
+          NAMESPACE="${{ inputs.eks-namespace }}"
+
+          echo "Checking pod health..."
+          kubectl get pods -n $NAMESPACE -l app=$DEPLOYMENT_NAME
+
+          # Wait for pods to be ready
+          kubectl wait --for=condition=ready pod \
+            -l app=$DEPLOYMENT_NAME \
+            -n $NAMESPACE \
+            --timeout=${{ inputs.health-check-timeout-minutes }}m
+
+          echo "✓ All pods are ready"
+
+      - name: EKS Development Deployment Summary
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================"
+          echo "           EKS Development Deployment Summary               "
+          echo "============================================================"
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Cluster: ${{ inputs.eks-cluster-dev }}"
+          echo "Namespace: ${{ inputs.eks-namespace }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✓ EKS development deployment completed successfully!"
+          else
+            echo "✗ EKS development deployment failed or was skipped"
+          fi
+          echo ""

@@ -1,0 +1,49 @@
+name: 'Maven Publish'
+description: 'Publish Maven artifacts to GitHub Packages'
+
+inputs:
+  java-version:
+    description: 'Java version to use'
+    default: '17'
+    required: false
+  java-distribution:
+    description: 'Java distribution to use'
+    default: 'temurin'
+    required: false
+  release-version:
+    description: 'Release version (optional - if not set, publishes SNAPSHOT)'
+    default: ''
+    required: false
+  github-actor:
+    description: 'GitHub actor'
+    required: true
+  github-token:
+    description: 'GitHub token'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: ${{ inputs.java-distribution }}
+        cache: maven
+        server-id: github
+        server-username: GITHUB_ACTOR
+        server-password: GITHUB_TOKEN
+
+    - name: Publish to GitHub Packages
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.release-version }}" ]; then
+          echo "Publishing release version: ${{ inputs.release-version }}"
+          mvn deploy --batch-mode -DskipTests -Drevision=${{ inputs.release-version }}
+        else
+          echo "Publishing SNAPSHOT version"
+          mvn deploy --batch-mode -DskipTests
+        fi
+      env:
+        GITHUB_ACTOR: ${{ inputs.github-actor }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}

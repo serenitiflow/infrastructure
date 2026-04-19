@@ -1,0 +1,15 @@
+project_name             = "serenity"
+app                      = "serenity"
+environment              = "dev"
+aws_region               = "us-east-1"
+db_username              = "postgres"
+aurora_instance_class    = "db.serverless"
+aurora_min_capacity      = 0.5
+aurora_max_capacity      = 2
+redis_node_type          = "cache.t4g.micro"
+# COST OPTIMIZATION: Enable scheduler to stop Aurora at night (~$20-30/mo savings)
+# Disable for 24/7 workloads
+aurora_scheduler_enabled = true
+# Dev: Minimum retention for cost savings
+backup_retention_period  = 1
+snapshot_retention_limit = 1

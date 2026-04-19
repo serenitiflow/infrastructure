@@ -1,0 +1,59 @@
+# Worktrees
+.worktrees/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.auto.tfvars
+crash.log
+crash.*.log
+*.tfplan
+override.tf
+*_override.tf
+!terraform.tfvars.example
+
+# SSH Keys / Credentials
+**/*.pem
+**/*.key
+**/id_rsa*
+**/*.pub
+**/kubeconfig*
+**/kube.conf
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Generated files
+*.generated.tf
+.terraformrc
+terraform.rc
+
+# Build artifacts
+*.zip
+*.jar
+*.war
+*.tar.gz
+*.tar
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~

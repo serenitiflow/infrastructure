@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: serenityflow-postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_MULTIPLE_DATABASES: users,files
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - serenityflow-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: serenityflow-redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass GxyvffifbjINAUNNUQp
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "GxyvffifbjINAUNNUQp", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - serenityflow-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  serenityflow-network:
+    driver: bridge
