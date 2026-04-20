@@ -12,4 +12,5 @@ module "aurora" {
   aurora_scheduler_enabled = var.aurora_scheduler_enabled
   backup_retention_period  = var.backup_retention_period
   allowed_admin_cidrs      = var.allowed_admin_cidrs
+  publicly_accessible      = var.publicly_accessible
 }
