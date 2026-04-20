@@ -20,7 +20,7 @@ terraform/
 │   └── github-oidc/        # GitHub Actions OIDC provider + IAM role
 ├── shared/                 # Shared resources (VPC, EKS)
 │   ├── networking/         # Primary VPC (shared EKS lives here)
-│   └── eks/                # EKS cluster + IRSA IAM roles + GitHub OIDC
+│   └── eks/                # EKS cluster + IRSA IAM roles + GitHub OIDC + ALB Controller
 ├── envs/                   # Environment-specific deployments
 │   ├── dev/                # Dev-specific data resources
 │   │   ├── aurora/
@@ -48,23 +48,30 @@ terraform/
 |  |  - Private subnets  |     |  - OIDC Provider    |       |
 |  |  - Database subnets |     |  - IRSA IAM Roles   |       |
 |  |  - NAT Gateway/Inst |     |  - GitHub OIDC      |       |
-|  |                     |     |                     |       |
+|  |                     |     |  - ALB Controller   |       |
 |  |  Writes SSM params  +---->+  Reads SSM params   |       |
 |  |  (/shared/...)            |  (/shared/eks/...)         |
 |  +----------+----------+     +----------+----------+       |
 |             |                           |                  |
-|             |                           |                  |
-|             v                           v                  |
-|  +---------------------+     +---------------------+       |
-|  |  dev/aurora         |     |  Application        |       |
-|  |  (separate state)   |     |  (reads SSM params) |       |
-|  |                     |     |                     |       |
-|  |  - Aurora PostgreSQL|     |  - DB credentials   |       |
-|  |  - Secrets Manager  |     |  - Redis endpoint   |       |
-|  |                     |     |  - EKS kubeconfig   |       |
-|  |  Reads EKS SG from  |     |  - IRSA role ARN    |       |
-|  |  SSM for SG rules   |     |                     |       |
-|  +---------------------+     +---------------------+       |
+|             |                           v                  |
+|             |                  +---------------------+     |
+|             |                  | Route 53            |     |
+|             |                  | - serenitiflow.com  |     |
+|             |                  | - ACM validation    |     |
+|             |                  | - ALB alias records |     |
+|             |                  +----------+----------+     |
+|             |                             |                |
+|             v                             v                |
+|  +---------------------+     +---------------------+      |
+|  |  dev/aurora         |     | Application         |      |
+|  |  (separate state)   |     | (reads SSM params)  |      |
+|  |                     |     |                     |      |
+|  |  - Aurora PostgreSQL|     |  - DB credentials   |      |
+|  |  - Secrets Manager  |     |  - Redis endpoint   |      |
+|  |                     |     |  - EKS kubeconfig   |      |
+|  |  Reads EKS SG from  |     |  - IRSA role ARN    |      |
+|  |  SSM for SG rules   |     |                     |      |
+|  +---------------------+     +---------------------+      |
 |             |                                              |
 |             v                                              |
 |  +---------------------+                                   |
@@ -86,30 +93,51 @@ terraform/
 +-------------------------------------------------------------+
 ```
 
-### Stack Design
+### Core Concepts
 
-**4 Independent Stacks:**
+**1. Multi-Stack Decoupled Architecture**
+
+The infrastructure is split into 4 independent stacks, each with its own Terraform state:
 
 | Stack | Responsibility | Deploy Frequency | Blast Radius |
 |-------|---------------|------------------|--------------|
 | `shared/networking` | Primary VPC, subnets, NAT | Rarely (infrastructure) | Isolated to network |
-| `shared/eks` | Shared Kubernetes cluster + IRSA roles + GitHub OIDC | Occasionally (upgrades) | Isolated to compute |
+| `shared/eks` | Shared Kubernetes cluster, IRSA roles, GitHub OIDC, ALB Controller | Occasionally (upgrades) | Isolated to compute |
 | `aurora` | Aurora PostgreSQL, Secrets | Frequently (schema changes) | Isolated to data |
 | `redis` | ElastiCache Redis, Secrets | Rarely (infra changes) | Isolated to cache |
 
-**Cross-Stack Communication via SSM:**
+**2. Cross-Stack Communication via SSM**
 
-Instead of `terraform_remote_state` (which creates hard dependencies), each stack writes its outputs to AWS SSM Parameter Store:
+Instead of `terraform_remote_state` (which creates hard dependencies), each stack writes its outputs to AWS SSM Parameter Store. Downstream stacks read these values via `data.aws_ssm_parameter`.
 
-- **Networking** writes: `vpc_id`, `private_subnet_ids`, `database_subnet_group_name`, `database_route_table_ids`
-- **EKS** writes: `cluster_name`, `cluster_endpoint`, `cluster_security_group_id`, `oidc_provider_arn`, `github_actions_role_arn`
-- **Aurora** writes: `database_host`, `database_port`, `database_secret_arn`
-- **Redis** writes: `redis_host`, `redis_port`, `redis_secret_arn`
-
-Downstream stacks read these values via `data.aws_ssm_parameter`. This means:
+This means:
 - You can destroy and recreate EKS without touching the database
 - You can change the VPC CIDR without affecting running clusters
 - Each stack's state file is independent
+
+**3. Ingress & Load Balancing**
+
+The AWS Load Balancer Controller is installed via Helm in the `shared/eks` stack. It watches Kubernetes `Ingress` resources with `ingressClassName: alb` and automatically provisions AWS Application Load Balancers.
+
+Key behaviors:
+- One ALB per `alb.ingress.kubernetes.io/group.name` (multiple services can share a single ALB)
+- ALB names are limited to 32 characters — choose short names via `alb.ingress.kubernetes.io/load-balancer-name`
+- The controller auto-discovers subnets using tags: `kubernetes.io/role/elb` (public) or `kubernetes.io/role/internal-elb` (private) combined with `kubernetes.io/cluster/<cluster-name> = shared`
+- HTTPS is configured via ACM certificate ARNs on the Ingress annotations
+
+**4. IRSA (IAM Roles for Service Accounts)**
+
+Kubernetes pods authenticate to AWS using OIDC-based IAM roles. The `shared/eks` stack creates:
+- `serenity-services` service account in `dev-serenity` (and optionally `prod-serenity`) with Secrets Manager read access
+- `aws-load-balancer-controller` service account in `kube-system` with ELB/EC2 permissions
+
+This means pods never use node IAM credentials — each service has its own scoped role.
+
+**5. Keyless CI/CD with GitHub OIDC**
+
+GitHub Actions workflows authenticate to AWS via OIDC federation. No long-lived AWS credentials are stored in GitHub. The `shared/eks` stack creates the OIDC provider and IAM role for this.
+
+---
 
 ## Prerequisites
 
@@ -142,6 +170,8 @@ cd envs/dev/redis && terraform init && terraform apply
 1. `envs/prod/aurora`
 2. `envs/prod/redis`
 3. Set `create_prod_irsa = true` in `shared/eks/terraform.tfvars` and re-apply EKS
+
+---
 
 ## Step-by-Step Creation
 
@@ -187,6 +217,10 @@ terraform apply
 - NAT Gateway (prod) or NAT Instance (dev)
 - SSM parameters that downstream stacks will read
 
+**Important — Subnet Tags for ALB Controller:**
+
+The networking module adds the cluster-specific tag `kubernetes.io/cluster/serenity-shared-cluster = shared` to all public and private subnets. This tag is **required** by the AWS Load Balancer Controller to auto-discover which subnets to place ALBs in. Without it, Ingress resources will fail to provision load balancers.
+
 **Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/networking/`.
 
 ### Step 3: Deploy EKS (shared/eks)
@@ -207,8 +241,19 @@ terraform apply
 - KMS-encrypted secrets
 - OIDC provider for IAM Roles for Service Accounts
 - IRSA IAM roles for dev/prod namespace service accounts
+- **AWS Load Balancer Controller** (Helm release in `kube-system`) — watches Ingress resources and provisions ALBs
 - **GitHub Actions OIDC provider + IAM role** for keyless CI/CD authentication
 - SSM parameters for cluster access, IRSA role ARNs, and GitHub Actions role ARN
+
+**ALB Controller Resources (new in `shared/eks/alb-controller.tf`):**
+
+| Resource | Purpose |
+|----------|---------|
+| `aws_iam_policy.alb_controller` | Base IAM policy from upstream AWS LB Controller project |
+| `aws_iam_policy.alb_controller_supplement` | Supplementary policy for permissions not in the base JSON (e.g., `ec2:GetSecurityGroupsForVpc`) |
+| `module.alb_controller_irsa` | IRSA role with trust policy scoped to `kube-system/aws-load-balancer-controller` |
+| `kubernetes_service_account_v1.alb_controller` | K8s SA annotated with the IRSA role ARN |
+| `helm_release.alb_controller` | Helm chart for the controller (v2.8.2) |
 
 **Outputs to note:**
 - `github_actions_role_arn` — used by GitHub Actions workflows to authenticate to AWS
@@ -272,6 +317,83 @@ aws ssm get-parameters-by-path --path "/serenity/dev" --recursive
 
 You should see parameters from all stacks under `/serenity/shared/networking/`, `/serenity/shared/eks/`, `/serenity/dev/networking/`, `/serenity/dev/database/`, and `/serenity/dev/redis/`.
 
+---
+
+## Ingress Configuration (ALB)
+
+Once the AWS Load Balancer Controller is installed, Kubernetes `Ingress` resources with `ingressClassName: alb` automatically provision AWS ALBs.
+
+### Example Ingress manifest
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform-user-service
+  namespace: dev-serenity
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-central-1:ACCOUNT:certificate/UUID
+    alb.ingress.kubernetes.io/load-balancer-name: dev-serenity-user-svc
+    alb.ingress.kubernetes.io/group.name: dev-serenity
+spec:
+  ingressClassName: alb
+  rules:
+    - host: dev-identity.serenitiflow.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: platform-user-service
+                port:
+                  number: 8080
+```
+
+### Key annotations
+
+| Annotation | Purpose | Example |
+|-----------|---------|---------|
+| `scheme` | `internet-facing` or `internal` | `internet-facing` |
+| `target-type` | `ip` (pod IP) or `instance` (node port) | `ip` |
+| `listen-ports` | ALB listener ports | `[{"HTTP": 80}, {"HTTPS": 443}]` |
+| `ssl-redirect` | Redirect HTTP to HTTPS | `"443"` |
+| `certificate-arn` | ACM certificate for HTTPS | `arn:aws:acm:...` |
+| `load-balancer-name` | ALB name (max 32 chars) | `dev-serenity-user-svc` |
+| `group.name` | Share one ALB across multiple Ingresses | `dev-serenity` |
+| `healthcheck-path` | Health check endpoint | `/actuator/health/readiness` |
+
+### ALB naming limit
+
+AWS ALB names are limited to **32 characters**. If your generated name exceeds this, the controller will fail with:
+```
+load balancer name cannot be longer than 32 characters
+```
+
+Use `alb.ingress.kubernetes.io/load-balancer-name` to set a short, explicit name.
+
+### HTTPS / TLS setup
+
+1. Request an ACM certificate for your domain:
+   ```bash
+   aws acm request-certificate \
+     --domain-name dev-identity.serenitiflow.com \
+     --validation-method DNS \
+     --region eu-central-1
+   ```
+
+2. Add the ACM validation CNAME to your DNS (Route 53 or external provider)
+
+3. Add an ALB alias record (A record pointing to the ALB DNS name)
+
+4. Update the Ingress annotations with `listen-ports`, `ssl-redirect`, and `certificate-arn`
+
+---
+
 ## GitHub Actions CI/CD to EKS
 
 The `shared/eks` stack creates a GitHub Actions OIDC provider and IAM role. This enables **keyless authentication** — no long-lived AWS credentials are stored in GitHub.
@@ -300,7 +422,7 @@ Each microservice should have:
 ```
 .github/workflows/deploy.yml          # Caller workflow
 config/k8s/dev/
-  ├── deployment.yaml                  # Deployment, Service, PDB
+  ├── deployment.yaml                  # Deployment, Service, PDB, Ingress
   ├── configmap.yaml                   # Non-sensitive env vars
   └── secret.yaml.template             # Secret template (not committed)
 ```
@@ -322,6 +444,8 @@ kubectl create secret generic platform-user-service \
   --from-literal=REDIS_HOST="..." \
   --from-literal=REDIS_PASSWORD="..."
 ```
+
+---
 
 ## Environment Isolation
 
@@ -466,6 +590,8 @@ This produces `App = myapp-dev` or `App = myapp-prod` on all resources.
 - **Keyless CI/CD**: GitHub Actions authenticates via OIDC — no long-lived AWS credentials
 - **Cost Optimized**: NAT instance, Spot instances, scheduled Aurora shutdown
 - **Lens / kubectl**: Use standard tools for cluster visibility (no in-cluster dashboard deployed)
+- **Auto-Provisioned ALBs**: Kubernetes Ingress resources automatically create AWS ALBs via the AWS Load Balancer Controller
+- **HTTPS by Default**: Ingress annotations support ACM certificates and HTTP→HTTPS redirects
 
 ## Troubleshooting
 
@@ -491,6 +617,21 @@ If `kubectl` or the workflow fails to connect to the EKS API server:
 2. If the endpoint is private-only, enable public access by setting `cluster_endpoint_public_access = true` in `shared/eks/terraform.tfvars`
 3. If public access is enabled but limited by CIDR, ensure GitHub Actions IPs are allowed (or use `allowed_public_cidrs = ["0.0.0.0/0"]` for dev)
 4. The endpoint still requires valid AWS credentials — being publicly reachable does not mean it's publicly accessible
+
+### "load balancer name cannot be longer than 32 characters"
+Set `alb.ingress.kubernetes.io/load-balancer-name` to a name under 32 characters. Example: `dev-serenity-user-svc` (22 chars).
+
+### "AccessDenied: ... is not authorized to perform: ec2:GetSecurityGroupsForVpc"
+The AWS Load Balancer Controller's base IAM policy (from upstream v2.7.2 JSON) is missing newer permissions. The `alb-controller.tf` file includes a supplementary policy (`alb_controller_supplement`) for this. If you see this error, the supplementary policy may not be attached — verify via AWS Console IAM > Roles > `serenity-alb-controller-role` > Attached policies.
+
+### Ingress ADDRESS field stays empty
+1. Check controller pods: `kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller`
+2. Check controller logs: `kubectl logs -n kube-system deployment/aws-load-balancer-controller --tail=20`
+3. Common causes:
+   - Missing subnet tags (`kubernetes.io/cluster/<cluster-name> = shared`)
+   - IRSA misconfiguration (wrong OIDC provider or service account)
+   - ALB name too long (>32 characters)
+   - Missing IAM permissions
 
 ### Destroying a Stack
 Because stacks are independent, you can destroy them individually:
@@ -518,8 +659,22 @@ cd shared/networking && terraform destroy
 
 | Environment | Estimate |
 |-------------|----------|
-| **Dev** | **~$145-170/month** |
+| **Dev** | **~$145-175/month** |
 | **Prod** | **~$350-450/month** |
+
+### Dev cost breakdown
+
+| Component | Monthly Cost (eu-central-1) |
+|-----------|----------------------------|
+| AWS ALB base (1 ALB, 24/7) | ~$16.43 |
+| LCU charges (low dev traffic) | ~$1–6 |
+| Route 53 hosted zone | ~$0.50 |
+| ACM certificate | $0 (public certs are free) |
+| Controller pods | $0 (runs on existing SPOT nodes) |
+| IAM/IRSA | $0 |
+| **ALB subtotal** | **~$18–26/month** |
+
+The ALB cost is incremental to the base dev infrastructure (~$127–149/month for VPC, EKS, Aurora, Redis). Multiple services sharing the same `group.name` on the ALB do not increase the base cost — only LCU usage.
 
 ## Security Compliance
 
@@ -535,3 +690,5 @@ cd shared/networking && terraform destroy
 | SEC-8 | Sensitive outputs marked with `sensitive = true` |
 | SEC-9 | SSM parameters use `overwrite = true` for idempotent recreation |
 | SEC-10 | GitHub Actions uses OIDC federation — no long-lived AWS credentials in CI/CD |
+| SEC-11 | IRSA roles scope pod permissions per service account |
+| SEC-12 | ALB security groups auto-managed by controller with least-privilege ingress |

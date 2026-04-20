@@ -33,13 +33,15 @@ module "vpc" {
   enable_dns_support   = true
 
   public_subnet_tags = {
-    Type                       = "public"
-    "kubernetes.io/role/elb"   = "1"
+    Type                                          = "public"
+    "kubernetes.io/role/elb"                      = "1"
+    "kubernetes.io/cluster/${var.project_name}-${var.environment}-cluster" = "shared"
   }
 
   private_subnet_tags = {
-    Type                              = "private"
-    "kubernetes.io/role/internal-elb" = "1"
+    Type                                                = "private"
+    "kubernetes.io/role/internal-elb"                   = "1"
+    "kubernetes.io/cluster/${var.project_name}-${var.environment}-cluster" = "shared"
   }
 
   database_subnet_tags = {
