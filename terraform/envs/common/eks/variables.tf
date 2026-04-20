@@ -88,3 +88,9 @@ variable "access_entries" {
   default     = {}
 }
 
+variable "networking_environment" {
+  description = "Networking environment to reference (dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}
+

@@ -69,3 +69,9 @@ variable "snapshot_retention_limit" {
   type        = number
   default     = 7
 }
+
+variable "allowed_admin_cidrs" {
+  description = "CIDR blocks allowed to access databases directly (e.g. admin laptop IP)"
+  type        = list(string)
+  default     = []
+}

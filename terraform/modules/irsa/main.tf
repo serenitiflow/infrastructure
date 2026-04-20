@@ -51,7 +51,7 @@ resource "aws_iam_role_policy" "secrets_read" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
-        Resource = "arn:aws:secretsmanager:*:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/${var.environment}/*"
+        Resource = "arn:aws:secretsmanager:eu-central-1:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/${var.environment}/*"
       }
     ]
   })

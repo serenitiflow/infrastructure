@@ -13,3 +13,5 @@ aurora_scheduler_enabled = true
 # Dev: Minimum retention for cost savings
 backup_retention_period  = 1
 snapshot_retention_limit = 1
+# Admin access to databases from local machine
+allowed_admin_cidrs      = ["76.147.65.241/32"]

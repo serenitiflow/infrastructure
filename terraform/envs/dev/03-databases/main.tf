@@ -13,4 +13,5 @@ module "databases" {
   aurora_scheduler_enabled = var.aurora_scheduler_enabled
   backup_retention_period  = var.backup_retention_period
   snapshot_retention_limit = var.snapshot_retention_limit
+  allowed_admin_cidrs      = var.allowed_admin_cidrs
 }

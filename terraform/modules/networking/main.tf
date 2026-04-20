@@ -18,9 +18,9 @@ module "vpc" {
   cidr = var.vpc_cidr
 
   azs              = ["${var.aws_region}a", "${var.aws_region}b"]
-  private_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
-  public_subnets   = ["10.0.101.0/24", "10.0.102.0/24"]
-  database_subnets = ["10.0.201.0/24", "10.0.202.0/24"]
+  private_subnets  = [cidrsubnet(var.vpc_cidr, 8, 1), cidrsubnet(var.vpc_cidr, 8, 2)]
+  public_subnets   = [cidrsubnet(var.vpc_cidr, 8, 101), cidrsubnet(var.vpc_cidr, 8, 102)]
+  database_subnets = [cidrsubnet(var.vpc_cidr, 8, 201), cidrsubnet(var.vpc_cidr, 8, 202)]
 
   enable_nat_gateway     = var.nat_gateway_enabled
   single_nat_gateway     = var.environment != "prod"
@@ -30,11 +30,13 @@ module "vpc" {
   enable_dns_support   = true
 
   public_subnet_tags = {
-    Type = "public"
+    Type                       = "public"
+    "kubernetes.io/role/elb"   = "1"
   }
 
   private_subnet_tags = {
-    Type = "private"
+    Type                              = "private"
+    "kubernetes.io/role/internal-elb" = "1"
   }
 
   database_subnet_tags = {
@@ -58,7 +60,7 @@ module "nat_instance" {
   public_subnet_id        = module.vpc.public_subnets[0]
   private_subnets_cidr    = module.vpc.private_subnets_cidr_blocks
   private_route_table_ids = module.vpc.private_route_table_ids
-  private_cidr            = "10.0.0.0/16"
+  private_cidr            = var.vpc_cidr
 
   instance_type = var.nat_instance_type
 

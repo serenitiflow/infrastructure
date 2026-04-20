@@ -108,6 +108,10 @@ module "aurora" {
       source_security_group_id = data.aws_ssm_parameter.cluster_security_group_id.value
       description              = "PostgreSQL from EKS"
     }
+    admin_ingress = {
+      cidr_blocks = var.allowed_admin_cidrs
+      description = "PostgreSQL from admin IPs"
+    }
   }
 
   instances = {
@@ -167,6 +171,10 @@ module "elasticache" {
     eks_ingress = {
       referenced_security_group_id = data.aws_ssm_parameter.cluster_security_group_id.value
       description                  = "Redis from EKS"
+    }
+    admin_ingress = {
+      cidr_blocks = var.allowed_admin_cidrs
+      description = "Redis from admin IPs"
     }
   }
 

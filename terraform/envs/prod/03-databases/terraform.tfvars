@@ -14,3 +14,5 @@ aurora_scheduler_enabled = false
 # Prod: Longer retention for compliance
 backup_retention_period  = 30
 snapshot_retention_limit = 7
+# Admin access to databases from local machine
+allowed_admin_cidrs      = ["76.147.65.241/32"]

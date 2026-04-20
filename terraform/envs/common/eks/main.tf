@@ -16,5 +16,5 @@ module "eks" {
   cloudwatch_retention_days      = var.cloudwatch_retention_days
   cluster_enabled_log_types      = var.cluster_enabled_log_types
   access_entries                 = var.access_entries
-  networking_environment         = "dev"
+  networking_environment         = var.networking_environment
 }
