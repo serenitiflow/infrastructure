@@ -36,10 +36,10 @@ module "elasticache" {
   create_security_group = true
   security_group_rules = merge({
     eks_ingress = {
-      referenced_security_group_id = data.aws_ssm_parameter.cluster_security_group_id.value
+      referenced_security_group_id = data.aws_ssm_parameter.node_security_group_id.value
       from_port                    = 6379
       to_port                      = 6379
-      description                  = "Redis from EKS"
+      description                  = "Redis from EKS nodes"
     }
     }, length(var.allowed_admin_cidrs) > 0 ? {
     admin_ingress = {

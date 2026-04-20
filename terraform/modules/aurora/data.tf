@@ -22,3 +22,7 @@ data "aws_ssm_parameter" "public_database_subnet_group_name" {
 data "aws_ssm_parameter" "cluster_security_group_id" {
   name = "/${var.project_name}/shared/eks/cluster_security_group_id"
 }
+
+data "aws_ssm_parameter" "node_security_group_id" {
+  name = "/${var.project_name}/shared/eks/node_security_group_id"
+}

@@ -49,10 +49,10 @@ module "aurora" {
   create_security_group = true
   security_group_rules = {
     eks_ingress = {
-      source_security_group_id = data.aws_ssm_parameter.cluster_security_group_id.value
+      source_security_group_id = data.aws_ssm_parameter.node_security_group_id.value
       from_port                = 5432
       to_port                  = 5432
-      description              = "PostgreSQL from EKS"
+      description              = "PostgreSQL from EKS nodes"
     }
     admin_ingress = {
       cidr_blocks = var.allowed_admin_cidrs

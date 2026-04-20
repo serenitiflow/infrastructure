@@ -164,3 +164,67 @@ resource "aws_ssm_parameter" "prod_irsa_role_arn" {
     ManagedBy   = "terraform"
   }
 }
+
+# ---------------------------------------------------------------------------
+# Kubernetes Namespaces & ServiceAccounts for IRSA
+# ---------------------------------------------------------------------------
+
+resource "kubernetes_namespace_v1" "dev_serenity" {
+  metadata {
+    name = "dev-serenity"
+    labels = {
+      Environment = "dev"
+      Project     = var.project_name
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+resource "kubernetes_namespace_v1" "prod_serenity" {
+  count = var.create_prod_irsa ? 1 : 0
+
+  metadata {
+    name = "prod-serenity"
+    labels = {
+      Environment = "prod"
+      Project     = var.project_name
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+resource "kubernetes_service_account_v1" "dev_services" {
+  depends_on = [kubernetes_namespace_v1.dev_serenity]
+
+  metadata {
+    name      = "serenity-services"
+    namespace = kubernetes_namespace_v1.dev_serenity.metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.dev_namespace_services.arn
+    }
+    labels = {
+      Environment = "dev"
+      Project     = var.project_name
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+resource "kubernetes_service_account_v1" "prod_services" {
+  count = var.create_prod_irsa ? 1 : 0
+
+  depends_on = [kubernetes_namespace_v1.prod_serenity]
+
+  metadata {
+    name      = "serenity-services"
+    namespace = kubernetes_namespace_v1.prod_serenity[count.index].metadata[0].name
+    annotations = {
+      "eks.amazonaws.com/role-arn" = aws_iam_role.prod_namespace_services[count.index].arn
+    }
+    labels = {
+      Environment = "prod"
+      Project     = var.project_name
+      ManagedBy   = "terraform"
+    }
+  }
+}

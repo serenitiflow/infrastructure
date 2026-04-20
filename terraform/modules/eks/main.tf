@@ -124,6 +124,9 @@ module "ssm_parameters" {
     "/${var.project_name}/shared/eks/cluster_security_group_id" = {
       value = module.eks.cluster_security_group_id
     }
+    "/${var.project_name}/shared/eks/node_security_group_id" = {
+      value = module.eks.node_security_group_id
+    }
     "/${var.project_name}/shared/eks/cluster_oidc_issuer_url" = {
       value = module.eks.cluster_oidc_issuer_url
     }
