@@ -2,7 +2,7 @@
 -- USERS DATABASE (platform-user-service)
 -- =============================================================================
 
--- Create database
+-- Create database (run while connected to postgres or another default db)
 CREATE DATABASE users;
 
 -- Create service user with password
@@ -13,6 +13,9 @@ GRANT ALL PRIVILEGES ON DATABASE users TO users_service_user;
 
 -- Connect to users database to configure schema
 \c users;
+
+-- PostgreSQL 15+ fix: remove default PUBLIC access so only the service user controls the schema
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
 -- Change owner of public schema to the service user (required for PostgreSQL 15+)
 ALTER SCHEMA public OWNER TO users_service_user;
@@ -37,7 +40,10 @@ GRANT ALL PRIVILEGES ON DATABASE files TO files_service_user;
 -- Connect to files database to configure schema
 \c files;
 
--- Change owner of public schema to the service user (required for PostgreSQL 15+)
+-- PostgreSQL 15+ fix
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+
+-- Change owner of public schema to the service user
 ALTER SCHEMA public OWNER TO files_service_user;
 
 -- Grant schema privileges
@@ -60,7 +66,10 @@ GRANT ALL PRIVILEGES ON DATABASE humanresources TO hr_service_user;
 -- Connect to humanresources database to configure schema
 \c humanresources;
 
--- Change owner of public schema to the service user (required for PostgreSQL 15+)
+-- PostgreSQL 15+ fix
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+
+-- Change owner of public schema to the service user
 ALTER SCHEMA public OWNER TO hr_service_user;
 
 -- Grant schema privileges
