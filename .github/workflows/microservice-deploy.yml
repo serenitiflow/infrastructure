@@ -784,24 +784,10 @@ jobs:
           aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
           echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
 
-      - name: Verify kubectl access
-        run: |
-          echo "AWS caller identity:"
-          aws sts get-caller-identity
-          echo ""
-          echo "Kubeconfig:"
-          cat ~/.kube/config
-          echo ""
-          echo "kubectl version:"
-          kubectl version
-          echo ""
-          echo "Testing cluster access:"
-          kubectl get nodes
-
       - name: Apply Kubernetes manifests
         run: |
           echo "Applying manifests from config/k8s/dev/..."
-          kubectl apply -f config/k8s/dev/ --validate=false
+          kubectl apply -f config/k8s/dev/
 
       - name: Deploy to EKS
         id: deploy
@@ -895,21 +881,10 @@ jobs:
           aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
           echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
 
-      - name: Verify kubectl access
-        run: |
-          echo "AWS caller identity:"
-          aws sts get-caller-identity
-          echo ""
-          echo "kubectl version:"
-          kubectl version
-          echo ""
-          echo "Testing cluster access:"
-          kubectl get nodes
-
       - name: Apply Kubernetes manifests
         run: |
           echo "Applying manifests from config/k8s/prod/..."
-          kubectl apply -f config/k8s/prod/ --validate=false
+          kubectl apply -f config/k8s/prod/
 
       - name: Deploy to EKS
         id: deploy
