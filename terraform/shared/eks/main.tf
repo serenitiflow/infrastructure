@@ -1,5 +1,5 @@
 module "eks" {
-  source = "../../../modules/eks"
+  source = "../../modules/eks"
 
   project_name                   = var.project_name
   app                            = var.app

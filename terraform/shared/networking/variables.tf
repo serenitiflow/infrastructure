@@ -39,3 +39,9 @@ variable "nat_instance_type" {
   type        = string
   default     = "t4g.nano"
 }
+
+variable "vpc_cidr" {
+  description = "CIDR block for the VPC"
+  type        = string
+  default     = "10.0.0.0/16"
+}

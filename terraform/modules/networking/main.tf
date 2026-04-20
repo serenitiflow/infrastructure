@@ -79,7 +79,7 @@ data "aws_ssm_parameter" "ami" {
 }
 
 locals {
-  nat_user_data = !var.nat_gateway_enabled ? <<-EOF
+  nat_user_data_raw = <<-EOF
 #!/bin/bash
 set -e
 
@@ -99,9 +99,9 @@ iptables-save > /etc/sysconfig/iptables
 # Enable and start iptables service
 systemctl enable iptables
 systemctl start iptables
-
 EOF
-  : ""
+
+  nat_user_data = var.nat_gateway_enabled ? "" : local.nat_user_data_raw
 }
 
 # Security group for NAT Instance
