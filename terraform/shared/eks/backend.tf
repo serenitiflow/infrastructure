@@ -14,23 +14,9 @@ terraform {
 
   backend "s3" {
     bucket         = "serenity-dev-terraform-state-eu-central-1-692046683886"
-    key            = "common/eks/terraform.tfstate"
+    key            = "shared/eks/terraform.tfstate"
     region         = "eu-central-1"
     dynamodb_table = "serenity-dev-terraform-locks-eu-central-1"
     encrypt        = true
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-
-  default_tags {
-    tags = {
-      Project     = var.project_name
-      App         = var.app
-      Environment = var.environment
-      ManagedBy   = "terraform"
-      Stack       = "eks"
-    }
   }
 }

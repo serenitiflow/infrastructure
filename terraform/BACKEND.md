@@ -16,10 +16,12 @@ Encrypt: true
 
 | Stack | State Key |
 |-------|-----------|
-| networking | `shared/networking/terraform.tfstate` |
-| common/eks | `common/eks/terraform.tfstate` |
-| dev/03-aurora | `dev/aurora/terraform.tfstate` |
-| dev/04-redis | `dev/redis/terraform.tfstate` |
+| shared/networking | `shared/networking/terraform.tfstate` |
+| shared/eks | `shared/eks/terraform.tfstate` |
+| dev/aurora | `dev/aurora/terraform.tfstate` |
+| dev/redis | `dev/redis/terraform.tfstate` |
+| prod/aurora | `prod/aurora/terraform.tfstate` |
+| prod/redis | `prod/redis/terraform.tfstate` |
 
 ## Locking
 

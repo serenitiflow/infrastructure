@@ -17,16 +17,17 @@ terraform/
 │   ├── common-tags/        # Shared tag map
 │   ├── ssm-parameters/     # Shared SSM parameter loop
 │   └── database-common/    # Shared KMS + password + empty secret
+├── shared/                 # Shared resources (VPC, EKS)
+│   ├── networking/         # Primary VPC (shared EKS lives here)
+│   └── eks/                # EKS cluster + IRSA IAM roles
 ├── envs/                   # Environment-specific deployments
-│   ├── common/             # Shared resources
-│   │   ├── networking/     # Primary VPC (shared EKS lives here)
-│   │   └── eks/            # EKS cluster + IRSA IAM roles
 │   ├── dev/                # Dev-specific data resources
-│   │   ├── 03-aurora/
-│   │   └── 04-redis/
+│   │   ├── aurora/
+│   │   └── redis/
 │   └── prod/               # Prod-specific data resources
-│       ├── 03-aurora/
-│       └── 04-redis/
+│       ├── aurora/
+│       └── redis/
+├── _templates/             # Template files for new environments
 └── scripts/
     └── init-env.sh         # Helper to initialize new peer environments
 ```
@@ -38,7 +39,7 @@ terraform/
 |                        AWS Account                          |
 |                                                             |
 |  +---------------------+     +---------------------+       |
-|  |  common/networking  |     |  common/eks         |       |
+|  |  shared/networking  |     |  shared/eks         |       |
 |  |  (separate state)   |     |  (separate state)   |       |
 |  |                     |     |                     |       |
 |  |  - VPC 10.0.0.0/16  |     |  - EKS Cluster      |       |
@@ -54,7 +55,7 @@ terraform/
 |             |                           |                  |
 |             v                           v                  |
 |  +---------------------+     +---------------------+       |
-|  |  dev/03-aurora      |     |  Application        |       |
+|  |  dev/aurora         |     |  Application        |       |
 |  |  (separate state)   |     |  (reads SSM params) |       |
 |  |                     |     |                     |       |
 |  |  - Aurora PostgreSQL|     |  - DB credentials   |       |
@@ -66,7 +67,7 @@ terraform/
 |             |                                              |
 |             v                                              |
 |  +---------------------+                                   |
-|  |  dev/04-redis       |                                   |
+|  |  dev/redis          |                                   |
 |  |  (separate state)   |                                   |
 |  |                     |                                   |
 |  |  - ElastiCache Redis|                                   |
@@ -90,10 +91,10 @@ terraform/
 
 | Stack | Responsibility | Deploy Frequency | Blast Radius |
 |-------|---------------|------------------|--------------|
-| `common/networking` | Primary VPC, subnets, NAT | Rarely (infrastructure) | Isolated to network |
-| `common/eks` | Shared Kubernetes cluster + IRSA roles | Occasionally (upgrades) | Isolated to compute |
-| `03-aurora` | Aurora PostgreSQL, Secrets | Frequently (schema changes) | Isolated to data |
-| `04-redis` | ElastiCache Redis, Secrets | Rarely (infra changes) | Isolated to cache |
+| `shared/networking` | Primary VPC, subnets, NAT | Rarely (infrastructure) | Isolated to network |
+| `shared/eks` | Shared Kubernetes cluster + IRSA roles | Occasionally (upgrades) | Isolated to compute |
+| `aurora` | Aurora PostgreSQL, Secrets | Frequently (schema changes) | Isolated to data |
+| `redis` | ElastiCache Redis, Secrets | Rarely (infra changes) | Isolated to cache |
 
 **Cross-Stack Communication via SSM:**
 
@@ -113,7 +114,7 @@ Downstream stacks read these values via `data.aws_ssm_parameter`. This means:
 
 - AWS CLI configured (`aws configure` or env vars)
 - Terraform >= 1.5.0
-- Bash (for helper scripts)
+- Bash
 
 ## Dev-Only Deployment (Start Here)
 
@@ -124,22 +125,22 @@ If you are starting with **dev only** and prod will be deployed later, use this 
 cd bootstrap && terraform init && terraform apply -var="environment=dev"
 
 # 2. Primary networking (VPC where shared EKS lives)
-cd envs/common/networking && terraform init && terraform apply
+cd shared/networking && terraform init && terraform apply
 
 # 3. Shared EKS cluster
-cd envs/common/eks && terraform init && terraform apply
+cd shared/eks && terraform init && terraform apply
 
 # 4. Dev Aurora
-cd envs/dev/03-aurora && terraform init && terraform apply
+cd envs/dev/aurora && terraform init && terraform apply
 
 # 5. Dev Redis
-cd envs/dev/04-redis && terraform init && terraform apply
+cd envs/dev/redis && terraform init && terraform apply
 ```
 
 **Prod data stacks** reuse the shared VPC and EKS cluster:
-1. `envs/prod/03-aurora`
-2. `envs/prod/04-redis`
-3. Set `create_prod_irsa = true` in `envs/common/eks/terraform.tfvars` and re-apply EKS
+1. `envs/prod/aurora`
+2. `envs/prod/redis`
+3. Set `create_prod_irsa = true` in `shared/eks/terraform.tfvars` and re-apply EKS
 
 ## Step-by-Step Creation
 
@@ -170,7 +171,7 @@ terraform apply -var="environment=dev"
 The primary VPC must be deployed first because the shared EKS cluster and all dev databases live in it.
 
 ```bash
-cd envs/common/networking
+cd shared/networking
 
 terraform init
 terraform plan
@@ -187,12 +188,12 @@ terraform apply
 
 **Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/networking/`.
 
-### Step 3: Deploy EKS (common/eks)
+### Step 3: Deploy EKS (shared/eks)
 
 EKS depends on networking (reads VPC and subnet IDs from SSM).
 
 ```bash
-cd envs/common/eks
+cd shared/eks
 
 terraform init
 terraform plan
@@ -217,12 +218,12 @@ kubectl get nodes
 
 **Important:** The `kubernetes` provider authenticates to EKS using a short-lived AWS token. Your AWS credentials must be active when running `terraform apply`. On the **first** run on a fresh cluster, the data sources may fail because the cluster doesn't exist yet; run `terraform apply -target=module.eks` first, then `terraform apply`.
 
-### Step 4: Deploy Aurora (03-aurora)
+### Step 4: Deploy Aurora (aurora)
 
 Aurora depends on networking (subnets, VPC) and EKS (security group for ingress rules).
 
 ```bash
-cd envs/dev/03-aurora
+cd envs/dev/aurora
 
 terraform init
 terraform plan
@@ -237,12 +238,12 @@ terraform apply
 
 **Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/database/`.
 
-### Step 5: Deploy Redis (04-redis)
+### Step 5: Deploy Redis (redis)
 
 Redis depends on networking (database subnets, VPC) and EKS (security group for ingress rules).
 
 ```bash
-cd envs/dev/04-redis
+cd envs/dev/redis
 
 terraform init
 terraform plan
@@ -276,8 +277,8 @@ Each environment has **completely isolated**:
 
 | Environment | Bucket Example | State Key Example |
 |-------------|----------------|-------------------|
-| common | `serenity-dev-terraform-state-eu-central-1-123...` | `common/networking/terraform.tfstate` |
-| common | `serenity-dev-terraform-state-eu-central-1-123...` | `common/eks/terraform.tfstate` |
+| shared | `serenity-dev-terraform-state-eu-central-1-123...` | `shared/networking/terraform.tfstate` |
+| shared | `serenity-dev-terraform-state-eu-central-1-123...` | `shared/eks/terraform.tfstate` |
 | dev | `serenity-dev-terraform-state-eu-central-1-123...` | `dev/aurora/terraform.tfstate` |
 | dev | `serenity-dev-terraform-state-eu-central-1-123...` | `dev/redis/terraform.tfstate` |
 | prod | `serenity-prod-terraform-state-eu-central-1-123...` | `prod/aurora/terraform.tfstate` |
@@ -289,12 +290,12 @@ The following naming convention is used for all cross-stack parameters in AWS SS
 
 | Path Pattern | Written By | Contents |
 |--------------|------------|----------|
-| `/${project_name}/shared/networking/*` | `common/networking` | VPC ID, subnets, route tables |
-| `/${project_name}/shared/eks/*` | `common/eks` | Cluster name, OIDC provider ARN, security group ID |
-| `/${project_name}/${env}/networking/*` | `common/networking` | DB subnet IDs, DB subnet group name |
-| `/${project_name}/${env}/database/*` | `03-aurora` | Aurora endpoint, port, credentials secret ARN |
-| `/${project_name}/${env}/redis/*` | `04-redis` | Redis endpoint, port, credentials secret ARN |
-| `/${project_name}/${env}/eks/*` | `common/eks` | IRSA role ARNs for CI/CD |
+| `/${project_name}/shared/networking/*` | `shared/networking` | VPC ID, subnets, route tables |
+| `/${project_name}/shared/eks/*` | `shared/eks` | Cluster name, OIDC provider ARN, security group ID |
+| `/${project_name}/${env}/networking/*` | `shared/networking` | DB subnet IDs, DB subnet group name |
+| `/${project_name}/${env}/database/*` | `aurora` | Aurora endpoint, port, credentials secret ARN |
+| `/${project_name}/${env}/redis/*` | `redis` | Redis endpoint, port, credentials secret ARN |
+| `/${project_name}/${env}/eks/*` | `shared/eks` | IRSA role ARNs for CI/CD |
 
 - The `shared` prefix is for infrastructure shared across all environments.
 - The `${env}` prefix is for environment-specific resources.
@@ -316,17 +317,62 @@ The following naming convention is used for all cross-stack parameters in AWS SS
 
 New environments reuse the shared VPC and EKS cluster. Only data stacks are created per environment.
 
+### 1. Create the environment directory structure
+
 ```bash
-# Use the helper script
-./scripts/init-env.sh staging
+ENV=staging
+mkdir -p envs/$ENV/aurora envs/$ENV/redis
+```
 
-# Review and edit the generated tfvars
-# envs/staging/03-aurora/terraform.tfvars
-# envs/staging/04-redis/terraform.tfvars
+### 2. Generate `backend.tf` for each stack
 
-# Deploy in order (common/eks already exists):
-cd envs/staging/03-aurora && terraform init && terraform apply
-cd ../04-redis && terraform init && terraform apply
+Use the template in `_templates/backend.tf`, replacing `{{ENV}}` and `{{STACK}}`:
+
+```bash
+# For aurora
+sed -e "s/{{ENV}}/$ENV/g" -e "s/{{STACK}}/aurora/g" _templates/backend.tf > envs/$ENV/aurora/backend.tf
+
+# For redis  
+sed -e "s/{{ENV}}/$ENV/g" -e "s/{{STACK}}/redis/g" _templates/backend.tf > envs/$ENV/redis/backend.tf
+```
+
+### 3. Copy `provider.tf` from templates
+
+```bash
+cp _templates/provider.tf envs/$ENV/aurora/provider.tf
+cp _templates/provider.tf envs/$ENV/redis/provider.tf
+```
+
+### 4. Copy module configs from dev as starting point
+
+```bash
+cp envs/dev/aurora/main.tf envs/$ENV/aurora/main.tf
+cp envs/dev/aurora/variables.tf envs/$ENV/aurora/variables.tf
+cp envs/dev/aurora/terraform.tfvars envs/$ENV/aurora/terraform.tfvars
+
+cp envs/dev/redis/main.tf envs/$ENV/redis/main.tf
+cp envs/dev/redis/variables.tf envs/$ENV/redis/variables.tf
+cp envs/dev/redis/terraform.tfvars envs/$ENV/redis/terraform.tfvars
+```
+
+### 5. Update environment in tfvars
+
+```bash
+sed -i.bak -e "s/environment *= *\"dev\"/environment = \"$ENV\"/g" envs/$ENV/aurora/terraform.tfvars
+sed -i.bak -e "s/environment *= *\"dev\"/environment = \"$ENV\"/g" envs/$ENV/redis/terraform.tfvars
+rm -f envs/$ENV/aurora/terraform.tfvars.bak envs/$ENV/redis/terraform.tfvars.bak
+```
+
+### 6. Review and deploy
+
+```bash
+# Review the generated tfvars
+# envs/staging/aurora/terraform.tfvars
+# envs/staging/redis/terraform.tfvars
+
+# Deploy in order (shared/eks already exists):
+cd envs/$ENV/aurora && terraform init && terraform apply
+cd ../redis && terraform init && terraform apply
 ```
 
 ## Resource Tagging
@@ -367,7 +413,7 @@ This produces `App = myapp-dev` or `App = myapp-prod` on all resources.
 ## Troubleshooting
 
 ### "Error: no matching EC2 Subnet found"
-The EKS or Aurora/Redis stack cannot find the VPC/subnets. Make sure `common/networking/` was applied first and SSM parameters exist.
+The EKS or Aurora/Redis stack cannot find the VPC/subnets. Make sure `shared/networking/` was applied first and SSM parameters exist.
 
 ### "Error: Backend configuration changed"
 If you modify `backend.tf`, run `terraform init -reconfigure`.
@@ -380,16 +426,16 @@ Because stacks are independent, you can destroy them individually:
 
 ```bash
 # Destroy just EKS (Aurora, Redis, and networking stay running)
-cd envs/common/eks && terraform destroy
+cd shared/eks && terraform destroy
 
 # Destroy everything in reverse order
-cd envs/dev/04-redis && terraform destroy
-cd envs/dev/03-aurora && terraform destroy
-cd envs/common/eks && terraform destroy
+cd envs/dev/redis && terraform destroy
+cd envs/dev/aurora && terraform destroy
+cd shared/eks && terraform destroy
 
-# WARNING: common/networking is the shared VPC used by ALL environments.
+# WARNING: shared/networking is the shared VPC used by ALL environments.
 # Only destroy it after ALL environment data stacks (dev, prod, etc.) are destroyed.
-cd envs/common/networking && terraform destroy
+cd shared/networking && terraform destroy
 ```
 
 ## Documentation
