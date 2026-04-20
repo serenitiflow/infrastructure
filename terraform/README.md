@@ -287,9 +287,9 @@ The `shared/eks` stack creates a GitHub Actions OIDC provider and IAM role. This
 
 Each service repo that deploys to EKS must set:
 
-| Secret | Value | Source |
-|--------|-------|--------|
-| `AWS_ROLE_ARN` | `arn:aws:iam::692046683886:role/serenity-github-actions-role` | `terraform output github_actions_role_arn` |
+| Secret | Value                                                      | Source |
+|--------|------------------------------------------------------------|--------|
+| `AWS_ROLE_ARN` | `arn:aws:iam::<account>:role/serenity-github-actions-role` | `terraform output github_actions_role_arn` |
 
 ### Service repo structure
 
