@@ -16,10 +16,11 @@ terraform/
 │   ├── redis/              # ElastiCache Redis (consumes database-common)
 │   ├── common-tags/        # Shared tag map
 │   ├── ssm-parameters/     # Shared SSM parameter loop
-│   └── database-common/    # Shared KMS + password + empty secret
+│   ├── database-common/    # Shared KMS + password + empty secret
+│   └── github-oidc/        # GitHub Actions OIDC provider + IAM role
 ├── shared/                 # Shared resources (VPC, EKS)
 │   ├── networking/         # Primary VPC (shared EKS lives here)
-│   └── eks/                # EKS cluster + IRSA IAM roles
+│   └── eks/                # EKS cluster + IRSA IAM roles + GitHub OIDC
 ├── envs/                   # Environment-specific deployments
 │   ├── dev/                # Dev-specific data resources
 │   │   ├── aurora/
@@ -46,7 +47,7 @@ terraform/
 |  |  - Public subnets   |     |  - Node Groups      |       |
 |  |  - Private subnets  |     |  - OIDC Provider    |       |
 |  |  - Database subnets |     |  - IRSA IAM Roles   |       |
-|  |  - NAT Gateway/Inst |     |                     |       |
+|  |  - NAT Gateway/Inst |     |  - GitHub OIDC      |       |
 |  |                     |     |                     |       |
 |  |  Writes SSM params  +---->+  Reads SSM params   |       |
 |  |  (/shared/...)            |  (/shared/eks/...)         |
@@ -61,7 +62,7 @@ terraform/
 |  |  - Aurora PostgreSQL|     |  - DB credentials   |       |
 |  |  - Secrets Manager  |     |  - Redis endpoint   |       |
 |  |                     |     |  - EKS kubeconfig   |       |
-|  |  Reads EKS SG from  |     |                     |       |
+|  |  Reads EKS SG from  |     |  - IRSA role ARN    |       |
 |  |  SSM for SG rules   |     |                     |       |
 |  +---------------------+     +---------------------+       |
 |             |                                              |
@@ -92,7 +93,7 @@ terraform/
 | Stack | Responsibility | Deploy Frequency | Blast Radius |
 |-------|---------------|------------------|--------------|
 | `shared/networking` | Primary VPC, subnets, NAT | Rarely (infrastructure) | Isolated to network |
-| `shared/eks` | Shared Kubernetes cluster + IRSA roles | Occasionally (upgrades) | Isolated to compute |
+| `shared/eks` | Shared Kubernetes cluster + IRSA roles + GitHub OIDC | Occasionally (upgrades) | Isolated to compute |
 | `aurora` | Aurora PostgreSQL, Secrets | Frequently (schema changes) | Isolated to data |
 | `redis` | ElastiCache Redis, Secrets | Rarely (infra changes) | Isolated to cache |
 
@@ -101,7 +102,7 @@ terraform/
 Instead of `terraform_remote_state` (which creates hard dependencies), each stack writes its outputs to AWS SSM Parameter Store:
 
 - **Networking** writes: `vpc_id`, `private_subnet_ids`, `database_subnet_group_name`, `database_route_table_ids`
-- **EKS** writes: `cluster_name`, `cluster_endpoint`, `cluster_security_group_id`, `oidc_provider_arn`
+- **EKS** writes: `cluster_name`, `cluster_endpoint`, `cluster_security_group_id`, `oidc_provider_arn`, `github_actions_role_arn`
 - **Aurora** writes: `database_host`, `database_port`, `database_secret_arn`
 - **Redis** writes: `redis_host`, `redis_port`, `redis_secret_arn`
 
@@ -206,7 +207,11 @@ terraform apply
 - KMS-encrypted secrets
 - OIDC provider for IAM Roles for Service Accounts
 - IRSA IAM roles for dev/prod namespace service accounts
-- SSM parameters for cluster access and IRSA role ARNs
+- **GitHub Actions OIDC provider + IAM role** for keyless CI/CD authentication
+- SSM parameters for cluster access, IRSA role ARNs, and GitHub Actions role ARN
+
+**Outputs to note:**
+- `github_actions_role_arn` — used by GitHub Actions workflows to authenticate to AWS
 
 **After apply, configure kubectl:**
 ```bash
@@ -214,7 +219,7 @@ aws eks update-kubeconfig --region eu-central-1 --name serenity-shared-cluster
 kubectl get nodes
 ```
 
-**Lens users:** Open Lens → Add Cluster → it will auto-detect the context from your kubeconfig.
+**Lens users:** Open Lens -> Add Cluster -> it will auto-detect the context from your kubeconfig.
 
 **Important:** The `kubernetes` provider authenticates to EKS using a short-lived AWS token. Your AWS credentials must be active when running `terraform apply`. On the **first** run on a fresh cluster, the data sources may fail because the cluster doesn't exist yet; run `terraform apply -target=module.eks` first, then `terraform apply`.
 
@@ -267,6 +272,55 @@ aws ssm get-parameters-by-path --path "/serenity/dev" --recursive
 
 You should see parameters from all stacks under `/serenity/shared/networking/`, `/serenity/shared/eks/`, `/serenity/dev/networking/`, `/serenity/dev/database/`, and `/serenity/dev/redis/`.
 
+## GitHub Actions CI/CD to EKS
+
+The `shared/eks` stack creates a GitHub Actions OIDC provider and IAM role. This enables **keyless authentication** — no long-lived AWS credentials are stored in GitHub.
+
+### How it works
+
+1. GitHub Actions generates a short-lived OIDC token
+2. The workflow calls `aws-actions/configure-aws-credentials` with `role-to-assume`
+3. AWS validates the token and issues temporary STS credentials
+4. The workflow uses `kubectl` to deploy to EKS
+
+### Required repository secret
+
+Each service repo that deploys to EKS must set:
+
+| Secret | Value | Source |
+|--------|-------|--------|
+| `AWS_ROLE_ARN` | `arn:aws:iam::692046683886:role/serenity-github-actions-role` | `terraform output github_actions_role_arn` |
+
+### Service repo structure
+
+Each microservice should have:
+
+```
+.github/workflows/deploy.yml          # Caller workflow
+config/k8s/dev/
+  ├── deployment.yaml                  # Deployment, Service, PDB
+  ├── configmap.yaml                   # Non-sensitive env vars
+  └── secret.yaml.template             # Secret template (not committed)
+```
+
+Example deployment manifests are in `platform-user-service/config/k8s/dev/`.
+
+### K8s secrets (one-time setup)
+
+Create the secret manually from your local machine:
+
+```bash
+aws eks update-kubeconfig --name serenity-shared-cluster --region eu-central-1
+
+kubectl create secret generic platform-user-service \
+  --namespace=dev-serenity \
+  --from-literal=DATABASE_URL="..." \
+  --from-literal=DATABASE_USERNAME="..." \
+  --from-literal=DATABASE_PASSWORD="..." \
+  --from-literal=REDIS_HOST="..." \
+  --from-literal=REDIS_PASSWORD="..."
+```
+
 ## Environment Isolation
 
 Each environment has **completely isolated**:
@@ -291,7 +345,7 @@ The following naming convention is used for all cross-stack parameters in AWS SS
 | Path Pattern | Written By | Contents |
 |--------------|------------|----------|
 | `/${project_name}/shared/networking/*` | `shared/networking` | VPC ID, subnets, route tables |
-| `/${project_name}/shared/eks/*` | `shared/eks` | Cluster name, OIDC provider ARN, security group ID |
+| `/${project_name}/shared/eks/*` | `shared/eks` | Cluster name, OIDC provider ARN, security group ID, GitHub Actions role ARN |
 | `/${project_name}/${env}/networking/*` | `shared/networking` | DB subnet IDs, DB subnet group name |
 | `/${project_name}/${env}/database/*` | `aurora` | Aurora endpoint, port, credentials secret ARN |
 | `/${project_name}/${env}/redis/*` | `redis` | Redis endpoint, port, credentials secret ARN |
@@ -407,6 +461,7 @@ This produces `App = myapp-dev` or `App = myapp-prod` on all resources.
 - **Independent State Files**: Each stack has its own S3 state file
 - **SSM Parameter Store**: Cross-stack communication (not terraform_remote_state)
 - **Security Hardened**: KMS encryption, TLS enforcement, scoped IAM policies
+- **Keyless CI/CD**: GitHub Actions authenticates via OIDC — no long-lived AWS credentials
 - **Cost Optimized**: NAT instance, Spot instances, scheduled Aurora shutdown
 - **Lens / kubectl**: Use standard tools for cluster visibility (no in-cluster dashboard deployed)
 
@@ -420,6 +475,12 @@ If you modify `backend.tf`, run `terraform init -reconfigure`.
 
 ### "DynamoDB table does not exist"
 Run bootstrap first for the target environment.
+
+### "Error: failed to assume role"
+If GitHub Actions fails with `AccessDenied` on `sts:AssumeRoleWithWebIdentity`:
+1. Verify the `AWS_ROLE_ARN` secret in the service repo matches `terraform output github_actions_role_arn`
+2. Check the workflow has `permissions: id-token: write`
+3. Ensure the repo is listed in the `allowed_repositories` condition of the IAM role trust policy
 
 ### Destroying a Stack
 Because stacks are independent, you can destroy them individually:
@@ -463,3 +524,4 @@ cd shared/networking && terraform destroy
 | SEC-7 | NAT instance security group restricted to HTTP/HTTPS/DNS |
 | SEC-8 | Sensitive outputs marked with `sensitive = true` |
 | SEC-9 | SSM parameters use `overwrite = true` for idempotent recreation |
+| SEC-10 | GitHub Actions uses OIDC federation — no long-lived AWS credentials in CI/CD |

@@ -57,6 +57,10 @@ on:
         required: false
         type: string
         default: 'eu-central-1'
+      aws-role-arn:
+        description: 'AWS IAM role ARN for GitHub Actions OIDC'
+        required: true
+        type: string
     secrets:
       coolify-url-dev:
         description: 'Coolify development instance URL'
@@ -84,12 +88,6 @@ on:
         required: false
       github-token:
         description: 'GitHub token for package authentication'
-        required: true
-      aws-access-key-id:
-        description: 'AWS access key ID for EKS'
-        required: true
-      aws-secret-access-key:
-        description: 'AWS secret access key for EKS'
         required: true
 
 env:
@@ -764,6 +762,9 @@ jobs:
         (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development')
       )
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: development
       url: ${{ steps.deploy.outputs.url }}
@@ -775,8 +776,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.aws-access-key-id }}
-          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.eks-aws-region }}
 
       - name: Update kubeconfig
@@ -859,6 +859,9 @@ jobs:
         (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
       )
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     environment:
       name: production
       url: ${{ steps.deploy.outputs.url }}
@@ -870,8 +873,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.aws-access-key-id }}
-          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.eks-aws-region }}
 
       - name: Update kubeconfig
