@@ -15,7 +15,7 @@ module "vpc" {
   version = "~> 5.0"
 
   name = "${var.project_name}-${var.environment}"
-  cidr = "10.0.0.0/16"
+  cidr = var.vpc_cidr
 
   azs              = ["${var.aws_region}a", "${var.aws_region}b"]
   private_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]

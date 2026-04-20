@@ -17,9 +17,9 @@ data "aws_ssm_parameter" "database_subnet_group_name" {
   name = "/${var.project_name}/${var.environment}/networking/database_subnet_group_name"
 }
 
-# EKS parameters
+# EKS parameters - shared cluster
 data "aws_ssm_parameter" "cluster_security_group_id" {
-  name = "/${var.project_name}/${var.environment}/eks/cluster_security_group_id"
+  name = "/${var.project_name}/shared/eks/cluster_security_group_id"
 }
 
 # Parse JSON arrays from SSM

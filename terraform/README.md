@@ -14,13 +14,13 @@ terraform/
 │   ├── eks/                # EKS cluster, node groups
 │   └── databases/          # Aurora, ElastiCache, Secrets
 ├── envs/                   # Environment-specific deployments
+│   ├── common/             # Shared resources (EKS cluster)
+│   │   └── eks/
 │   ├── dev/                # Development environment
 │   │   ├── 01-networking/
-│   │   ├── 02-eks/
 │   │   └── 03-databases/
 │   └── prod/               # Production environment
 │       ├── 01-networking/
-│       ├── 02-eks/
 │       └── 03-databases/
 └── scripts/
     └── init-env.sh         # Helper to initialize new environments
@@ -148,7 +148,7 @@ terraform apply
 EKS depends on networking (reads VPC and subnet IDs from SSM).
 
 ```bash
-cd envs/dev/02-eks
+cd envs/common/eks
 
 terraform init
 terraform plan
@@ -168,42 +168,16 @@ aws eks update-kubeconfig --region us-east-1 --name serenity-dev-cluster
 kubectl get nodes
 ```
 
-### Kubernetes Dashboard
+### Connect with Lens (or kubectl)
 
-The EKS module optionally deploys the [Kubernetes Dashboard](https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/) using the official manifest. Enable it per environment with:
+After `terraform apply`, configure kubeconfig and verify access:
 
-```hcl
-# terraform.tfvars
-enable_kubernetes_dashboard = true
+```bash
+aws eks update-kubeconfig --region us-east-1 --name serenity-dev-cluster
+kubectl get nodes
 ```
 
-**What it creates:**
-- `Namespace: kubernetes-dashboard` — isolated namespace
-- Dashboard deployment and service — via `kubectl apply` of the official manifest
-- `ServiceAccount: admin-user` — login identity
-- `ClusterRoleBinding: admin-user` — full cluster-admin access
-- `Secret: admin-user-token` — Bearer token for the login screen
-
-**Access the dashboard after `terraform apply`:**
-
-1. Configure kubectl (if not already done):                                                                                                                    
-   ```bash
-   aws eks update-kubeconfig --region us-east-1 --name serenity-{env}-cluster
-   ```
-
-2. **Get the login token** (copy the output):
-   ```bash
-   kubectl -n kubernetes-dashboard get secret admin-user-token -o jsonpath='{.data.token}' | base64 -d
-   ```
-
-3. **Port-forward** in a separate terminal:
-   ```bash
-   kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard 8443:443
-   ```
-
-4. **Open browser** at `https://localhost:8443` → click **"Sign in"** → select **"Token"** → paste the token.
-
-> **Note:** The dashboard uses a self-signed certificate. Your browser will show a warning — click "Advanced" → "Proceed anyway".
+**Lens users:** Open Lens → Add Cluster → it will auto-detect the context from your kubeconfig.
 
 **Important:** The `kubernetes` provider authenticates to EKS using a short-lived AWS token. Your AWS credentials must be active when running `terraform apply`. On the **first** run on a fresh cluster, the data sources may fail because the cluster doesn't exist yet; run `terraform apply -target=module.eks` first, then `terraform apply`.
 
@@ -247,6 +221,7 @@ Each environment has **completely isolated**:
 
 | Environment | Bucket Example | State Key Example |
 |-------------|----------------|-------------------|
+| common | `serenity-dev-terraform-v2-state-123...` | `dev/eks/terraform.tfstate` |
 | dev | `serenity-dev-terraform-v2-state-123...` | `dev/networking/terraform.tfstate` |
 | prod | `serenity-prod-terraform-v2-state-123...` | `prod/networking/terraform.tfstate` |
 
@@ -260,7 +235,7 @@ Each environment has **completely isolated**:
 | Redis | cache.t4g.micro | cache.t4g.small |
 | Backups | 1 day | 30 days |
 | CloudWatch | 1 day | 30 days |
-| Kubernetes Dashboard | Enabled | Disabled (prod: use Lens/k9s locally) |
+| Cluster UI | Lens / kubectl | Lens / kubectl |
 
 ## Adding a New Environment
 
@@ -270,12 +245,11 @@ Each environment has **completely isolated**:
 
 # Review and edit the generated tfvars
 # envs/staging/01-networking/terraform.tfvars
-# envs/staging/02-eks/terraform.tfvars
 # envs/staging/03-databases/terraform.tfvars
 
 # Deploy in order:
+cd envs/common/eks && terraform init && terraform apply
 cd envs/staging/01-networking && terraform init && terraform apply
-cd ../02-eks && terraform init && terraform apply
 cd ../03-databases && terraform init && terraform apply
 ```
 
@@ -312,7 +286,7 @@ This produces `App = myapp-dev` or `App = myapp-prod` on all resources.
 - **SSM Parameter Store**: Cross-stack communication (not terraform_remote_state)
 - **Security Hardened**: KMS encryption, TLS enforcement, scoped IAM policies
 - **Cost Optimized**: NAT instance, Spot instances, scheduled Aurora shutdown
-- **Kubernetes Dashboard**: Optional Helm-managed web UI for cluster visibility (dev only)
+- **Lens / kubectl**: Use standard tools for cluster visibility (no in-cluster dashboard deployed)
 
 ## Troubleshooting
 
@@ -330,12 +304,11 @@ Because stacks are independent, you can destroy them individually:
 
 ```bash
 # Destroy just EKS (databases and networking stay running)
-cd envs/dev/02-eks && terraform destroy
+cd envs/common/eks && terraform destroy
 
 # Destroy everything in reverse order
 cd envs/dev/03-databases && terraform destroy
-cd ../02-eks && terraform destroy
-cd ../01-networking && terraform destroy
+cd envs/dev/01-networking && terraform destroy
 ```
 
 ## Documentation

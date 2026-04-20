@@ -10,21 +10,13 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = ">= 2.27"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = ">= 2.12"
-    }
   }
 
   backend "s3" {
-    bucket         = "serenity-prod-terraform-v2-state-692046683886"
-    key            = "prod/eks/terraform.tfstate"
+    bucket         = "serenity-dev-terraform-v2-state-692046683886"
+    key            = "common/eks/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "serenity-prod-terraform-v2-locks"
+    dynamodb_table = "serenity-dev-terraform-v2-locks"
     encrypt        = true
   }
 }

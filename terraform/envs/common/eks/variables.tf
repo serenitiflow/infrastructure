@@ -88,8 +88,3 @@ variable "access_entries" {
   default     = {}
 }
 
-variable "enable_kubernetes_dashboard" {
-  description = "Enable Kubernetes Dashboard Helm release"
-  type        = bool
-  default     = false
-}

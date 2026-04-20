@@ -29,13 +29,4 @@ output "configure_kubectl" {
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
 
-output "kubernetes_dashboard_token_command" {
-  description = "Command to get Kubernetes Dashboard login token"
-  value       = var.enable_kubernetes_dashboard ? "kubectl -n kubernetes-dashboard get secret admin-user-token -o jsonpath='{.data.token}' | base64 -d" : null
-}
-
-output "kubernetes_dashboard_portforward_command" {
-  description = "Command to port-forward Kubernetes Dashboard to localhost"
-  value       = var.enable_kubernetes_dashboard ? "kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard 8443:443" : null
-}
 

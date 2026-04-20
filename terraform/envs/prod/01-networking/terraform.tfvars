@@ -4,3 +4,4 @@ environment         = "prod"
 aws_region          = "us-east-1"
 # PROD: Use NAT Gateway for HA (no single point of failure)
 nat_gateway_enabled = true
+vpc_cidr            = "10.1.0.0/16"

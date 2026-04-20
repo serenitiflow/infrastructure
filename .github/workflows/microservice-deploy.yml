@@ -37,21 +37,21 @@ on:
         required: false
         type: number
         default: 5
-      eks-cluster-dev:
-        description: 'EKS cluster name for dev'
+      eks-cluster-name:
+        description: 'Shared EKS cluster name'
         required: false
         type: string
-        default: 'serenity-dev-cluster'
-      eks-cluster-prod:
-        description: 'EKS cluster name for prod'
-        required: false
-        type: string
-        default: 'serenity-prod-cluster'
-      eks-namespace:
-        description: 'Kubernetes namespace'
+        default: 'serenity-shared-cluster'
+      eks-namespace-dev:
+        description: 'Kubernetes namespace for dev'
         required: false
         type: string
         default: 'dev-serenity'
+      eks-namespace-prod:
+        description: 'Kubernetes namespace for prod'
+        required: false
+        type: string
+        default: 'prod-serenity'
       eks-aws-region:
         description: 'AWS region for EKS'
         required: false
@@ -781,8 +781,8 @@ jobs:
 
       - name: Update kubeconfig
         run: |
-          aws eks update-kubeconfig --name ${{ inputs.eks-cluster-dev }} --region ${{ inputs.eks-aws-region }}
-          echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-dev }}"
+          aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
+          echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
 
       - name: Apply Kubernetes manifests
         run: |
@@ -793,14 +793,14 @@ jobs:
         id: deploy
         run: |
           DEPLOYMENT_NAME="${{ inputs.service-name }}"
-          NAMESPACE="${{ inputs.eks-namespace }}"
+          NAMESPACE="${{ inputs.eks-namespace-dev }}"
           IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
           echo "Deploying to EKS..."
           echo "  Deployment: $DEPLOYMENT_NAME"
           echo "  Namespace:  $NAMESPACE"
           echo "  Image:      $IMAGE"
-          echo "  Cluster:    ${{ inputs.eks-cluster-dev }}"
+          echo "  Cluster:    ${{ inputs.eks-cluster-name }}"
           echo ""
 
           # Restart deployment to pull new latest image
@@ -814,7 +814,7 @@ jobs:
         timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
         run: |
           DEPLOYMENT_NAME="${{ inputs.service-name }}"
-          NAMESPACE="${{ inputs.eks-namespace }}"
+          NAMESPACE="${{ inputs.eks-namespace-dev }}"
 
           echo "Checking pod health..."
           kubectl get pods -n $NAMESPACE -l app=$DEPLOYMENT_NAME
@@ -835,11 +835,103 @@ jobs:
           echo "           EKS Development Deployment Summary               "
           echo "============================================================"
           echo "Service: ${{ inputs.service-name }}"
-          echo "Cluster: ${{ inputs.eks-cluster-dev }}"
-          echo "Namespace: ${{ inputs.eks-namespace }}"
+          echo "Cluster: ${{ inputs.eks-cluster-name }}"
+          echo "Namespace: ${{ inputs.eks-namespace-dev }}"
           if [ "${{ job.status }}" == "success" ]; then
             echo "✓ EKS development deployment completed successfully!"
           else
             echo "✗ EKS development deployment failed or was skipped"
+          fi
+          echo ""
+
+  # -----------------------------------------------------------------------------
+  # Deploy to Production Environment (EKS)
+  # -----------------------------------------------------------------------------
+  deploy-prod-eks:
+    name: Deploy to Production (EKS)
+    needs: build-image
+    if: |
+      github.event_name != 'pull_request' && (
+        startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.eks-aws-region }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
+          echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
+
+      - name: Apply Kubernetes manifests
+        run: |
+          echo "Applying manifests from config/k8s/..."
+          kubectl apply -f config/k8s/
+
+      - name: Deploy to EKS
+        id: deploy
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.service-name }}"
+          NAMESPACE="${{ inputs.eks-namespace-prod }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+          echo "Deploying to EKS..."
+          echo "  Deployment: $DEPLOYMENT_NAME"
+          echo "  Namespace:  $NAMESPACE"
+          echo "  Image:      $IMAGE"
+          echo "  Cluster:    ${{ inputs.eks-cluster-name }}"
+          echo ""
+
+          # Restart deployment to pull new latest image
+          kubectl rollout restart deployment/$DEPLOYMENT_NAME -n $NAMESPACE
+          kubectl rollout status deployment/$DEPLOYMENT_NAME -n $NAMESPACE --timeout=${{ inputs.deploy-timeout-minutes }}m
+
+          echo "✓ EKS deployment completed"
+          echo "url=https://api-prod.serenityflow.io" >> $GITHUB_OUTPUT
+
+      - name: Verify EKS Deployment Health
+        timeout-minutes: ${{ inputs.health-check-timeout-minutes }}
+        run: |
+          DEPLOYMENT_NAME="${{ inputs.service-name }}"
+          NAMESPACE="${{ inputs.eks-namespace-prod }}"
+
+          echo "Checking pod health..."
+          kubectl get pods -n $NAMESPACE -l app=$DEPLOYMENT_NAME
+
+          # Wait for pods to be ready
+          kubectl wait --for=condition=ready pod \
+            -l app=$DEPLOYMENT_NAME \
+            -n $NAMESPACE \
+            --timeout=${{ inputs.health-check-timeout-minutes }}m
+
+          echo "✓ All pods are ready"
+
+      - name: EKS Production Deployment Summary
+        if: always()
+        run: |
+          echo ""
+          echo "============================================================"
+          echo "           EKS Production Deployment Summary                "
+          echo "============================================================"
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Cluster: ${{ inputs.eks-cluster-name }}"
+          echo "Namespace: ${{ inputs.eks-namespace-prod }}"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✓ EKS production deployment completed successfully!"
+          else
+            echo "✗ EKS production deployment failed or was skipped"
           fi
           echo ""

@@ -3,16 +3,22 @@
 
 data "aws_caller_identity" "current" {}
 
+variable "networking_environment" {
+  description = "Environment whose VPC/subnets to use for the cluster"
+  type        = string
+  default     = "dev"
+}
+
 data "aws_ssm_parameter" "vpc_id" {
-  name = "/${var.project_name}/${var.environment}/networking/vpc_id"
+  name = "/${var.project_name}/${var.networking_environment}/networking/vpc_id"
 }
 
 data "aws_ssm_parameter" "private_subnet_ids" {
-  name = "/${var.project_name}/${var.environment}/networking/private_subnet_ids"
+  name = "/${var.project_name}/${var.networking_environment}/networking/private_subnet_ids"
 }
 
 data "aws_ssm_parameter" "public_subnet_ids" {
-  name = "/${var.project_name}/${var.environment}/networking/public_subnet_ids"
+  name = "/${var.project_name}/${var.networking_environment}/networking/public_subnet_ids"
 }
 
 # Parse JSON arrays from SSM

@@ -112,7 +112,7 @@ module "eks" {
 
 # SSM Parameters for cross-stack communication (decoupled approach)
 resource "aws_ssm_parameter" "cluster_name" {
-  name      = "/${var.project_name}/${var.environment}/eks/cluster_name"
+  name      = "/${var.project_name}/shared/eks/cluster_name"
   type      = "String"
   value     = module.eks.cluster_name
   overwrite = true
@@ -123,7 +123,7 @@ resource "aws_ssm_parameter" "cluster_name" {
 }
 
 resource "aws_ssm_parameter" "cluster_endpoint" {
-  name      = "/${var.project_name}/${var.environment}/eks/cluster_endpoint"
+  name      = "/${var.project_name}/shared/eks/cluster_endpoint"
   type      = "String"
   value     = module.eks.cluster_endpoint
   overwrite = true
@@ -134,7 +134,7 @@ resource "aws_ssm_parameter" "cluster_endpoint" {
 }
 
 resource "aws_ssm_parameter" "cluster_security_group_id" {
-  name      = "/${var.project_name}/${var.environment}/eks/cluster_security_group_id"
+  name      = "/${var.project_name}/shared/eks/cluster_security_group_id"
   type      = "String"
   value     = module.eks.cluster_security_group_id
   overwrite = true
@@ -145,7 +145,7 @@ resource "aws_ssm_parameter" "cluster_security_group_id" {
 }
 
 resource "aws_ssm_parameter" "cluster_oidc_issuer_url" {
-  name      = "/${var.project_name}/${var.environment}/eks/cluster_oidc_issuer_url"
+  name      = "/${var.project_name}/shared/eks/cluster_oidc_issuer_url"
   type      = "String"
   value     = module.eks.cluster_oidc_issuer_url
   overwrite = true
@@ -156,7 +156,7 @@ resource "aws_ssm_parameter" "cluster_oidc_issuer_url" {
 }
 
 resource "aws_ssm_parameter" "oidc_provider_arn" {
-  name      = "/${var.project_name}/${var.environment}/eks/oidc_provider_arn"
+  name      = "/${var.project_name}/shared/eks/oidc_provider_arn"
   type      = "String"
   value     = module.eks.oidc_provider_arn
   overwrite = true
@@ -166,80 +166,3 @@ resource "aws_ssm_parameter" "oidc_provider_arn" {
   })
 }
 
-# ------------------------------------------------------------------------------
-# Kubernetes Dashboard
-# ------------------------------------------------------------------------------
-
-resource "kubernetes_namespace_v1" "kubernetes_dashboard" {
-  count = var.enable_kubernetes_dashboard ? 1 : 0
-
-  metadata {
-    name = "kubernetes-dashboard"
-    labels = {
-      name = "kubernetes-dashboard"
-    }
-  }
-}
-
-resource "null_resource" "kubernetes_dashboard" {
-  count = var.enable_kubernetes_dashboard ? 1 : 0
-
-  triggers = {
-    manifest_url = "https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml"
-  }
-
-  provisioner "local-exec" {
-    command = "kubectl apply -f ${self.triggers.manifest_url}"
-  }
-
-  depends_on = [kubernetes_namespace_v1.kubernetes_dashboard]
-}
-
-resource "kubernetes_service_account_v1" "admin_user" {
-  count = var.enable_kubernetes_dashboard ? 1 : 0
-
-  metadata {
-    name      = "admin-user"
-    namespace = kubernetes_namespace_v1.kubernetes_dashboard[0].metadata[0].name
-  }
-
-  depends_on = [null_resource.kubernetes_dashboard]
-}
-
-resource "kubernetes_secret_v1" "admin_user_token" {
-  count = var.enable_kubernetes_dashboard ? 1 : 0
-
-  metadata {
-    name      = "admin-user-token"
-    namespace = kubernetes_namespace_v1.kubernetes_dashboard[0].metadata[0].name
-    annotations = {
-      "kubernetes.io/service-account.name" = kubernetes_service_account_v1.admin_user[0].metadata[0].name
-    }
-  }
-
-  type = "kubernetes.io/service-account-token"
-
-  depends_on = [kubernetes_service_account_v1.admin_user]
-}
-
-resource "kubernetes_cluster_role_binding_v1" "admin_user" {
-  count = var.enable_kubernetes_dashboard ? 1 : 0
-
-  metadata {
-    name = "admin-user"
-  }
-
-  role_ref {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "ClusterRole"
-    name      = "cluster-admin"
-  }
-
-  subject {
-    kind      = "ServiceAccount"
-    name      = kubernetes_service_account_v1.admin_user[0].metadata[0].name
-    namespace = kubernetes_namespace_v1.kubernetes_dashboard[0].metadata[0].name
-  }
-
-  depends_on = [kubernetes_service_account_v1.admin_user]
-}

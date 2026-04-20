@@ -25,15 +25,5 @@ output "oidc_provider_arn" {
 
 output "configure_kubectl" {
   description = "Command to configure kubectl"
-  value       = module.eks.configure_kubectl
-}
-
-output "kubernetes_dashboard_token_command" {
-  description = "Command to get Kubernetes Dashboard login token"
-  value       = module.eks.kubernetes_dashboard_token_command
-}
-
-output "kubernetes_dashboard_portforward_command" {
-  description = "Command to port-forward Kubernetes Dashboard to localhost"
-  value       = module.eks.kubernetes_dashboard_portforward_command
+  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
 }
