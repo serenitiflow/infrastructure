@@ -2,7 +2,7 @@
 
 ## Context
 
-**Current state:** All existing infrastructure has been destroyed. This is a **clean new setup**.
+**Current state:** All existing infrastructure has been destroyed. This is a **clean new setup** in **`eu-central-1`**.
 
 The goal is to build a **single shared EKS cluster** where environments are separated by Kubernetes namespaces (`dev-serenity`, `prod-serenity`). Environment-specific AWS resources (Aurora, Redis, Secrets Manager) remain provisioned per environment with their existing prefixes. EKS workloads in the `dev` namespace connect to `dev-aurora`, and workloads in the `prod` namespace connect to `prod-aurora`.
 
@@ -153,6 +153,10 @@ security_group_rules = {
 
 ## Phase 3: Kubernetes Namespaces and Service Accounts
 
+**Status: Complete**
+
+Both `dev-serenity` and `prod-serenity` namespaces created. Service accounts created with IRSA role ARNs. Dev SA placeholder `<ACCOUNT_ID>` replaced with actual account ID.
+
 ### 3.1 Create prod namespace and service account
 
 **New file:** `infrastructure/k8s/prod/namespace.yaml`
@@ -185,6 +189,10 @@ metadata:
 ---
 
 ## Phase 4: IRSA Roles (Terraform)
+
+**Status: Complete**
+
+IRSA module created at `modules/irsa/`. Shared stack at `envs/common/irsa/` instantiates dev and prod roles. Role ARNs written to SSM for CI/CD reference.
 
 ### 4.1 Create IRSA module
 
@@ -278,6 +286,10 @@ resource "aws_ssm_parameter" "prod_irsa_role_arn" {
 
 ## Phase 5: Application Deployment Manifests
 
+**Status: Complete (with known issues to fix)**
+
+Prod deployment manifest created. Both dev and prod ConfigMaps have placeholder endpoints that must be replaced with actual Aurora/Redis endpoints after infrastructure is deployed.
+
 ### 5.1 Environment-specific ConfigMaps
 
 **Current issue:** `platform-user-service/config/k8s/dev/deployment.yaml` hardcodes database hostnames.
@@ -307,6 +319,10 @@ Each namespace needs its own K8s Secret with credentials from the correct enviro
 
 ## Phase 6: CI/CD Workflow Updates
 
+**Status: Complete (with known issues to fix)**
+
+Workflow updated with unified `eks-cluster-name` input, separate namespace inputs for dev/prod, and a new `deploy-prod-eks` job. `kubectl apply` path needs fixing to target `config/k8s/dev/` and `config/k8s/prod/`.
+
 ### 6.1 Update `microservice-deploy.yml`
 
 **File:** `infrastructure/.github/workflows/microservice-deploy.yml`
@@ -327,23 +343,64 @@ Each namespace needs its own K8s Secret with credentials from the correct enviro
 
 ---
 
-## Critical Files to Modify
+## Critical Files Status
 
-| File | Change |
-|------|--------|
-| `terraform/modules/eks/main.tf` | Update SSM paths to `/serenity/shared/eks/*` |
-| `terraform/modules/eks/data.tf` | Add `networking_environment` variable for VPC reads |
-| `terraform/envs/common/eks/terraform.tfvars` | Change `environment` to `"shared"` |
-| `terraform/envs/common/eks/backend.tf` | Update state key to `common/eks/terraform.tfstate` |
-| `terraform/modules/databases/data.tf` | Add `shared_cluster_security_group_id` data source |
-| `terraform/modules/databases/main.tf` | Use shared EKS SG for Aurora/Redis ingress |
-| `terraform/envs/dev/vpc-peering-prod/` | New stack: VPC peering between dev and prod |
-| `terraform/modules/irsa/` | New module: IRSA role creation |
-| `terraform/envs/common/irsa/` | New stack: IRSA roles for dev and prod namespaces |
-| `infrastructure/k8s/prod/namespace.yaml` | New: prod namespace |
-| `infrastructure/k8s/prod/serviceaccount.yaml` | New: prod IRSA service account |
-| `infrastructure/k8s/dev/serviceaccount.yaml` | Fix: replace `<ACCOUNT_ID>` placeholder |
-| `.github/workflows/microservice-deploy.yml` | Update for shared cluster + namespaces |
+| File | Status | Notes |
+|------|--------|-------|
+| `terraform/modules/eks/main.tf` | Done | SSM paths updated to `/serenity/shared/eks/*` |
+| `terraform/modules/eks/data.tf` | Done | `networking_environment` variable added |
+| `terraform/envs/common/eks/terraform.tfvars` | Done | `environment = "shared"` |
+| `terraform/envs/common/eks/backend.tf` | Done | State key: `common/eks/terraform.tfstate` |
+| `terraform/modules/databases/data.tf` | Done | Reads shared EKS cluster SG |
+| `terraform/modules/databases/main.tf` | Done | Uses shared EKS SG for Aurora/Redis ingress |
+| `terraform/envs/dev/vpc-peering-prod/` | Done | Peering + routes created |
+| `terraform/modules/irsa/` | Done | IRSA role module created |
+| `terraform/envs/common/irsa/` | Done | Dev + prod IRSA roles |
+| `infrastructure/k8s/prod/namespace.yaml` | Done | `prod-serenity` namespace |
+| `infrastructure/k8s/prod/serviceaccount.yaml` | Done | Prod IRSA service account |
+| `infrastructure/k8s/dev/serviceaccount.yaml` | Done | `<ACCOUNT_ID>` replaced |
+| `.github/workflows/microservice-deploy.yml` | Done | Shared cluster + namespace params |
+| `platform-user-service/config/k8s/prod/deployment.yaml` | Done | Prod manifest created (placeholders remain) |
+
+---
+
+## Post-Implementation Review
+
+A full code review was conducted after implementation. **46 findings** were identified across 4 categories:
+- **11 Critical** — must fix before deployment
+- **20 Warnings** — should address soon
+- **15 Suggestions** — nice-to-have improvements
+
+See the full reports:
+- [`PLAN-single-eks-cluster_review_feedback.md`](PLAN-single-eks-cluster_review_feedback.md) — detailed findings by category
+- [`PLAN-single-eks-cluster_todo.md`](PLAN-single-eks-cluster_todo.md) — actionable checklist
+
+### Top critical fixes remaining
+1. **Subnet CIDRs are hardcoded** — networking module uses `10.0.x.0/24` regardless of `vpc_cidr` value
+2. **NAT instance `private_cidr` is hardcoded** — always `10.0.0.0/16`
+3. **Prod deployment uses `latest` image tag**
+4. **Prod ConfigMap has placeholder endpoints** (`PROD_AURORA_ENDPOINT`, `PROD_REDIS_ENDPOINT`)
+5. **CI/CD `kubectl apply` path is wrong** — applies `config/k8s/` instead of `config/k8s/dev/` or `config/k8s/prod/`
+6. **No HTTPS on ALB** — HTTP only on internet-facing load balancer
+7. **Placeholder credentials in `docker-registry-secret.yaml`** — risk of committing real secrets
+8. **JWT keys in ConfigMaps** — should be in Secrets; same key in dev and prod
+9. **No NetworkPolicies** — default allow-all between pods across namespaces
+10. **No Pod Security Admission labels** — namespaces don't enforce security standards
+
+---
+
+## Clean Slate Deployment Order
+
+Since all infrastructure has been destroyed, apply in this order:
+
+1. `dev/01-networking` + `prod/01-networking` (parallel)
+2. `dev/vpc-peering-prod`
+3. `common/eks`
+4. `dev/03-databases` + `prod/03-databases` (parallel, needs shared EKS SG)
+5. `common/irsa`
+6. Apply K8s namespaces and service accounts
+7. Update ConfigMaps with real Aurora/Redis endpoints
+8. Deploy applications
 
 ---
 

@@ -56,7 +56,7 @@ on:
         description: 'AWS region for EKS'
         required: false
         type: string
-        default: 'us-east-1'
+        default: 'eu-central-1'
     secrets:
       coolify-url-dev:
         description: 'Coolify development instance URL'

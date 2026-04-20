@@ -1,7 +1,7 @@
 project_name             = "serenity"
 app                      = "serenity"
 environment              = "prod"
-aws_region               = "us-east-1"
+aws_region               = "eu-central-1"
 db_username              = "postgres"
 aurora_instance_class    = "db.serverless"
 # PROD: Higher capacity for production workloads

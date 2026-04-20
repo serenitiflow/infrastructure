@@ -15,7 +15,7 @@ provider "aws" {
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "us-east-1"
+  default     = "eu-central-1"
 }
 
 variable "project_name" {
@@ -62,7 +62,7 @@ resource "aws_kms_alias" "terraform_state" {
 
 # S3 Bucket for Terraform state
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "${var.project_name}-${var.environment}-terraform-v2-state-${data.aws_caller_identity.current.account_id}"
+  bucket = "${var.project_name}-${var.environment}-terraform-v2-state-${var.aws_region}-${data.aws_caller_identity.current.account_id}"
 
   lifecycle {
     prevent_destroy = true
@@ -97,7 +97,7 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 
 # SEC-3: Separate bucket for access logs (security isolation)
 resource "aws_s3_bucket" "terraform_logs" {
-  bucket = "${var.project_name}-${var.environment}-terraform-v2-logs-${data.aws_caller_identity.current.account_id}"
+  bucket = "${var.project_name}-${var.environment}-terraform-v2-logs-${var.aws_region}-${data.aws_caller_identity.current.account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "terraform_logs" {
@@ -223,7 +223,7 @@ resource "aws_s3_bucket_policy" "terraform_logs_tls" {
 
 # DynamoDB Table for state locking
 resource "aws_dynamodb_table" "terraform_locks" {
-  name         = "${var.project_name}-${var.environment}-terraform-v2-locks"
+  name         = "${var.project_name}-${var.environment}-terraform-v2-locks-${var.aws_region}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 

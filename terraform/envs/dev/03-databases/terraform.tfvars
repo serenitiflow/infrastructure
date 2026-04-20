@@ -1,7 +1,7 @@
 project_name             = "serenity"
 app                      = "serenity"
 environment              = "dev"
-aws_region               = "us-east-1"
+aws_region               = "eu-central-1"
 db_username              = "postgres"
 aurora_instance_class    = "db.serverless"
 aurora_min_capacity      = 0.5

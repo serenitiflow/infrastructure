@@ -1,7 +1,7 @@
 project_name              = "serenity"
 app                       = "serenity"
 environment               = "shared"
-aws_region                = "us-east-1"
+aws_region                = "eu-central-1"
 kubernetes_version        = "1.35"
 capacity_type             = "SPOT"
 node_instance_types       = ["t3a.medium", "t3.medium"]

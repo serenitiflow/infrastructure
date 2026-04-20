@@ -7,7 +7,7 @@ Each stack uses an S3 backend with DynamoDB state locking.
 ```
 Bucket: serenity-{env}-terraform-v2-state-{account_id}
 Key:    {env}/{stack}/terraform.tfstate
-Region: us-east-1
+Region: eu-central-1
 Table:  serenity-{env}-terraform-v2-locks
 Encrypt: true
 ```

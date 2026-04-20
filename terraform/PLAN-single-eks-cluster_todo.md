@@ -25,7 +25,7 @@ These fixes must be applied **before** any `terraform apply` on the clean setup.
 - [ ] Convert `networking_environment = "dev"` in `envs/common/eks/main.tf` to a variable with default `"dev"`
 
 ### Task 1.5: Fix IRSA Region Scoping
-- [ ] Lock Secrets Manager IAM policy region in `modules/irsa/main.tf` from `*` to `us-east-1`
+- [ ] Lock Secrets Manager IAM policy region in `modules/irsa/main.tf` from `*` to `eu-central-1`
 
 ---
 

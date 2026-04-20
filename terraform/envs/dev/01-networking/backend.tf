@@ -9,10 +9,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "serenity-dev-terraform-v2-state-692046683886"
+    bucket         = "serenity-dev-terraform-v2-state-eu-central-1-692046683886"
     key            = "dev/networking/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "serenity-dev-terraform-v2-locks"
+    region         = "eu-central-1"
+    dynamodb_table = "serenity-dev-terraform-v2-locks-eu-central-1"
     encrypt        = true
   }
 }

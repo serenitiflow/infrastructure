@@ -114,8 +114,8 @@ terraform apply -var="environment=dev"
 ```
 
 **What this creates:**
-- S3 bucket: `serenity-dev-terraform-v2-state-{account_id}`
-- DynamoDB table: `serenity-dev-terraform-v2-locks`
+- S3 bucket: `serenity-dev-terraform-v2-state-eu-central-1-{account_id}`
+- DynamoDB table: `serenity-dev-terraform-v2-locks-eu-central-1`
 - KMS key for state encryption
 - Separate logging bucket with TLS enforcement
 
@@ -164,7 +164,7 @@ terraform apply
 
 **After apply, configure kubectl:**
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name serenity-dev-cluster
+aws eks update-kubeconfig --region eu-central-1 --name serenity-shared-cluster
 kubectl get nodes
 ```
 
@@ -173,7 +173,7 @@ kubectl get nodes
 After `terraform apply`, configure kubeconfig and verify access:
 
 ```bash
-aws eks update-kubeconfig --region us-east-1 --name serenity-dev-cluster
+aws eks update-kubeconfig --region eu-central-1 --name serenity-shared-cluster
 kubectl get nodes
 ```
 
@@ -221,9 +221,9 @@ Each environment has **completely isolated**:
 
 | Environment | Bucket Example | State Key Example |
 |-------------|----------------|-------------------|
-| common | `serenity-dev-terraform-v2-state-123...` | `dev/eks/terraform.tfstate` |
-| dev | `serenity-dev-terraform-v2-state-123...` | `dev/networking/terraform.tfstate` |
-| prod | `serenity-prod-terraform-v2-state-123...` | `prod/networking/terraform.tfstate` |
+| common | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `common/eks/terraform.tfstate` |
+| dev | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `dev/networking/terraform.tfstate` |
+| prod | `serenity-prod-terraform-v2-state-eu-central-1-123...` | `prod/networking/terraform.tfstate` |
 
 ## Environment Configuration Differences
 
