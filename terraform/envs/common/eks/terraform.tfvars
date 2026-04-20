@@ -16,6 +16,9 @@ cluster_enabled_log_types = []
 cluster_endpoint_public_access = true
 allowed_public_cidrs           = ["76.147.65.241/32"]
 
+# Dev-only deployment: disable prod IRSA until prod is ready
+create_prod_irsa = false
+
 # Access Entries - add IAM roles/users that need kubectl / Lens access
 # Required for anyone other than the cluster creator to connect
 # Example:

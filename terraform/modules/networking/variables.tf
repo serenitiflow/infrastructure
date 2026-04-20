@@ -11,14 +11,20 @@ variable "app" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Environment name (dev, staging, prod, shared)"
   type        = string
-  default     = "dev"
+  default     = "shared"
 
   validation {
-    condition     = can(regex("^(dev|staging|prod)$", var.environment))
-    error_message = "Environment must be one of: dev, staging, prod."
+    condition     = can(regex("^(dev|staging|prod|shared)$", var.environment))
+    error_message = "Environment must be one of: dev, staging, prod, shared."
   }
+}
+
+variable "environments" {
+  description = "List of environments to create DB subnets for"
+  type        = list(string)
+  default     = ["dev", "prod"]
 }
 
 variable "aws_region" {

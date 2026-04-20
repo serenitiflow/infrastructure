@@ -21,7 +21,7 @@ output "redis_connection_string" {
 
 output "redis_credentials_secret_arn" {
   description = "ARN of Redis credentials secret"
-  value       = aws_secretsmanager_secret.redis_credentials.arn
+  value       = module.database_common.secret_arn
   sensitive   = true
 }
 
@@ -32,5 +32,5 @@ output "redis_cluster_id" {
 
 output "redis_secret_kms_key_arn" {
   description = "ARN of KMS key used for Redis secrets"
-  value       = aws_kms_key.secrets.arn
+  value       = module.database_common.kms_key_arn
 }

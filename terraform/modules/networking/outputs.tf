@@ -24,9 +24,24 @@ output "database_subnet_ids" {
   value       = module.vpc.database_subnets
 }
 
-output "database_subnet_group_name" {
-  description = "Database subnet group name"
-  value       = module.vpc.database_subnet_group_name
+output "dev_database_subnet_ids" {
+  description = "Dev database subnet IDs"
+  value       = [module.vpc.database_subnets[0], module.vpc.database_subnets[1]]
+}
+
+output "prod_database_subnet_ids" {
+  description = "Prod database subnet IDs"
+  value       = [module.vpc.database_subnets[2], module.vpc.database_subnets[3]]
+}
+
+output "dev_database_subnet_group_name" {
+  description = "Dev database subnet group name"
+  value       = aws_db_subnet_group.dev.name
+}
+
+output "prod_database_subnet_group_name" {
+  description = "Prod database subnet group name"
+  value       = aws_db_subnet_group.prod.name
 }
 
 output "private_route_table_ids" {
@@ -51,6 +66,26 @@ output "nat_gateway_id" {
 
 output "nat_instance_id" {
   description = "NAT Instance ID (if enabled)"
-  value       = module.nat_instance.nat_instance_id
+  value       = !var.nat_gateway_enabled ? aws_instance.nat[0].id : null
+}
+
+output "nat_instance_private_ip" {
+  description = "Private IP of the NAT instance"
+  value       = !var.nat_gateway_enabled ? aws_instance.nat[0].private_ip : null
+}
+
+output "nat_eip" {
+  description = "Elastic IP of the NAT instance"
+  value       = !var.nat_gateway_enabled ? aws_eip.nat[0].public_ip : null
+}
+
+output "nat_security_group_id" {
+  description = "Security group ID for NAT instance"
+  value       = !var.nat_gateway_enabled ? aws_security_group.nat[0].id : null
+}
+
+output "nat_instance_enabled" {
+  description = "Whether NAT instance is enabled"
+  value       = !var.nat_gateway_enabled
 }
 

@@ -6,7 +6,7 @@ data "aws_caller_identity" "current" {}
 
 # Networking parameters
 data "aws_ssm_parameter" "vpc_id" {
-  name = "/${var.project_name}/${var.environment}/networking/vpc_id"
+  name = "/${var.project_name}/shared/networking/vpc_id"
 }
 
 data "aws_ssm_parameter" "database_subnet_ids" {

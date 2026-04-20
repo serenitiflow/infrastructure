@@ -88,9 +88,9 @@ variable "access_entries" {
   default     = {}
 }
 
-variable "networking_environment" {
-  description = "Networking environment to reference (dev, staging, prod)"
-  type        = string
-  default     = "dev"
+variable "create_prod_irsa" {
+  description = "Create IRSA role for prod namespace (disable for dev-only deployments)"
+  type        = bool
+  default     = false
 }
 

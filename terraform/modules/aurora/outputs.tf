@@ -30,7 +30,7 @@ output "aurora_master_username" {
 
 output "aurora_secret_arn" {
   description = "ARN of Secrets Manager secret containing Aurora credentials"
-  value       = aws_secretsmanager_secret.aurora_credentials.arn
+  value       = module.database_common.secret_arn
   sensitive   = true
 }
 
@@ -42,4 +42,24 @@ output "aurora_cluster_resource_id" {
 output "aurora_cluster_arn" {
   description = "Aurora cluster ARN"
   value       = module.aurora.cluster_arn
+}
+
+output "scheduler_lambda_function_arn" {
+  description = "ARN of the Aurora scheduler Lambda function"
+  value       = var.aurora_scheduler_enabled ? aws_lambda_function.aurora_scheduler[0].arn : null
+}
+
+output "scheduler_lambda_function_name" {
+  description = "Name of the Aurora scheduler Lambda function"
+  value       = var.aurora_scheduler_enabled ? aws_lambda_function.aurora_scheduler[0].function_name : null
+}
+
+output "scheduler_stop_schedule_rule" {
+  description = "CloudWatch Event Rule for stopping Aurora"
+  value       = var.aurora_scheduler_enabled ? aws_cloudwatch_event_rule.aurora_stop[0].name : null
+}
+
+output "scheduler_start_schedule_rule" {
+  description = "CloudWatch Event Rule for starting Aurora"
+  value       = var.aurora_scheduler_enabled ? aws_cloudwatch_event_rule.aurora_start[0].name : null
 }

@@ -1,12 +1,10 @@
-locals {
-  common_tags = {
-    Name        = "${var.project_name}-${var.environment}"
-    Environment = var.environment
-    Project     = var.project_name
-    App         = "${var.app}-${var.environment}"
-    ManagedBy   = "terraform"
-    Stack       = "eks"
-  }
+module "common_tags" {
+  source = "../common-tags"
+
+  project_name = var.project_name
+  app          = var.app
+  environment  = var.environment
+  stack        = "eks"
 }
 
 # KMS Key for EKS Secrets Encryption
@@ -107,62 +105,31 @@ module "eks" {
     }
   }
 
-  tags = local.common_tags
+  tags = module.common_tags.tags
 }
 
 # SSM Parameters for cross-stack communication (decoupled approach)
-resource "aws_ssm_parameter" "cluster_name" {
-  name      = "/${var.project_name}/shared/eks/cluster_name"
-  type      = "String"
-  value     = module.eks.cluster_name
-  overwrite = true
+module "ssm_parameters" {
+  source = "../ssm-parameters"
 
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-eks-cluster-name"
-  })
-}
+  tags = module.common_tags.tags
 
-resource "aws_ssm_parameter" "cluster_endpoint" {
-  name      = "/${var.project_name}/shared/eks/cluster_endpoint"
-  type      = "String"
-  value     = module.eks.cluster_endpoint
-  overwrite = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-eks-cluster-endpoint"
-  })
-}
-
-resource "aws_ssm_parameter" "cluster_security_group_id" {
-  name      = "/${var.project_name}/shared/eks/cluster_security_group_id"
-  type      = "String"
-  value     = module.eks.cluster_security_group_id
-  overwrite = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-eks-sg-id"
-  })
-}
-
-resource "aws_ssm_parameter" "cluster_oidc_issuer_url" {
-  name      = "/${var.project_name}/shared/eks/cluster_oidc_issuer_url"
-  type      = "String"
-  value     = module.eks.cluster_oidc_issuer_url
-  overwrite = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-eks-oidc-url"
-  })
-}
-
-resource "aws_ssm_parameter" "oidc_provider_arn" {
-  name      = "/${var.project_name}/shared/eks/oidc_provider_arn"
-  type      = "String"
-  value     = module.eks.oidc_provider_arn
-  overwrite = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-eks-oidc-arn"
-  })
+  parameters = {
+    "/${var.project_name}/shared/eks/cluster_name" = {
+      value = module.eks.cluster_name
+    }
+    "/${var.project_name}/shared/eks/cluster_endpoint" = {
+      value = module.eks.cluster_endpoint
+    }
+    "/${var.project_name}/shared/eks/cluster_security_group_id" = {
+      value = module.eks.cluster_security_group_id
+    }
+    "/${var.project_name}/shared/eks/cluster_oidc_issuer_url" = {
+      value = module.eks.cluster_oidc_issuer_url
+    }
+    "/${var.project_name}/shared/eks/oidc_provider_arn" = {
+      value = module.eks.oidc_provider_arn
+    }
+  }
 }
 

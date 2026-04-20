@@ -13,7 +13,13 @@ variable "app" {
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "prod"
+  default     = "shared"
+}
+
+variable "environments" {
+  description = "List of environments to create DB subnets for"
+  type        = list(string)
+  default     = ["dev", "prod"]
 }
 
 variable "aws_region" {
@@ -25,11 +31,11 @@ variable "aws_region" {
 variable "nat_gateway_enabled" {
   description = "Use NAT Gateway (true) or NAT Instance (false)"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "nat_instance_type" {
   description = "Instance type for NAT (if not using Gateway)"
   type        = string
-  default     = "t4g.small"
+  default     = "t4g.nano"
 }

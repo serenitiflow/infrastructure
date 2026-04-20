@@ -5,10 +5,10 @@ Each stack uses an S3 backend with DynamoDB state locking.
 ## Backend Structure
 
 ```
-Bucket: serenity-{env}-terraform-v2-state-{account_id}
+Bucket: serenity-{env}-terraform-state-{account_id}
 Key:    {env}/{stack}/terraform.tfstate
 Region: eu-central-1
-Table:  serenity-{env}-terraform-v2-locks
+Table:  serenity-{env}-terraform-locks
 Encrypt: true
 ```
 
@@ -16,9 +16,10 @@ Encrypt: true
 
 | Stack | State Key |
 |-------|-----------|
-| 01-networking | `dev/networking/terraform.tfstate` |
-| 02-eks | `dev/eks/terraform.tfstate` |
-| 03-databases | `dev/databases/terraform.tfstate` |
+| networking | `shared/networking/terraform.tfstate` |
+| common/eks | `common/eks/terraform.tfstate` |
+| dev/03-aurora | `dev/aurora/terraform.tfstate` |
+| dev/04-redis | `dev/redis/terraform.tfstate` |
 
 ## Locking
 

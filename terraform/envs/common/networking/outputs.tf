@@ -23,11 +23,6 @@ output "database_subnet_ids" {
   value       = module.networking.database_subnet_ids
 }
 
-output "database_subnet_group_name" {
-  description = "Database subnet group name"
-  value       = module.networking.database_subnet_group_name
-}
-
 output "private_route_table_ids" {
   description = "Private route table IDs"
   value       = module.networking.private_route_table_ids
