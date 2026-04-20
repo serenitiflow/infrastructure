@@ -386,7 +386,7 @@ Use the template in `_templates/backend.tf`, replacing `{{ENV}}` and `{{STACK}}`
 # For aurora
 sed -e "s/{{ENV}}/$ENV/g" -e "s/{{STACK}}/aurora/g" _templates/backend.tf > envs/$ENV/aurora/backend.tf
 
-# For redis  
+# For redis
 sed -e "s/{{ENV}}/$ENV/g" -e "s/{{STACK}}/redis/g" _templates/backend.tf > envs/$ENV/redis/backend.tf
 ```
 
