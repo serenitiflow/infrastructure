@@ -9,7 +9,7 @@ Reusable GitHub Actions workflows for centralized CI/CD pipelines.
 
 | Workflow | Description | Usage |
 |----------|-------------|-------|
-| `microservice-deploy.yml` | Reusable workflow for Java microservices deploying to Coolify | Called by service repositories |
+| `microservice-deploy.yml` | Reusable workflow for Java microservices deploying to **EKS** (Coolify deprecated) | Called by service repositories |
 
 ### `cicd/`
 GitHub Actions reusable composite actions for CI/CD pipelines.
@@ -81,20 +81,35 @@ When using the reusable workflows and actions, the following secrets should be c
 | `GPR_USERNAME` | GitHub username for GitHub Packages access | Gradle/Maven builds |
 | `GPR_TOKEN` | Personal Access Token with `packages:write` scope | Gradle/Maven publish |
 
-### Coolify Deployment Secrets (microservice-deploy.yml)
+### EKS Deployment Configuration (microservice-deploy.yml)
 
-When using the `microservice-deploy.yml` workflow, services must configure these secrets following the naming convention:
+When using the `microservice-deploy.yml` workflow, services must configure:
 
-| Secret Pattern | Example for `platform-user-service` | Description |
-|----------------|-------------------------------------|-------------|
-| `COOLIFY_URL_{ENV}` | `COOLIFY_URL_DEV`, `COOLIFY_URL_PROD` | Coolify instance URL (infrastructure level) |
-| `COOLIFY_API_TOKEN_{ENV}` | `COOLIFY_API_TOKEN_DEV`, `COOLIFY_API_TOKEN_PROD` | Coolify API token (infrastructure level) |
-| `COOLIFY_APP_UUID_{SERVICE}_{ENV}` | `COOLIFY_APP_UUID_PLATFORM_USER_SERVICE_DEV` | Application UUID in Coolify (per-service) |
-| `SERVICE_URL_{SERVICE}_{ENV}` | `SERVICE_URL_PLATFORM_USER_SERVICE_DEV` | Service public URL for health checks (per-service) |
+| Setting | Type | Example for `platform-user-service` | Description |
+|---------|------|-------------------------------------|-------------|
+| `AWS_ROLE_ARN` | **Repository Variable** | `arn:aws:iam::692046683886:role/serenity-github-actions-role` | IAM role for GitHub Actions OIDC authentication |
+
+**Required workflow permissions:**
+```yaml
+permissions:
+  id-token: write
+  contents: read
+  packages: write
+```
+
+### Coolify Deployment Secrets (Deprecated)
+
+Coolify deployment is being migrated to EKS. These secrets are maintained for backward compatibility during the transition:
+
+| Secret Pattern | Example | Description |
+|----------------|---------|-------------|
+| `COOLIFY_URL_{ENV}` | `COOLIFY_URL_DEV` | Coolify instance URL |
+| `COOLIFY_API_TOKEN_{ENV}` | `COOLIFY_API_TOKEN_DEV` | Coolify API token |
+| `COOLIFY_APP_UUID_{SERVICE}_{ENV}` | `COOLIFY_APP_UUID_PLATFORM_USER_SERVICE_DEV` | Application UUID in Coolify |
+| `SERVICE_URL_{SERVICE}_{ENV}` | `SERVICE_URL_PLATFORM_USER_SERVICE_DEV` | Service public URL for health checks |
 
 **Secret naming transformation:** Service name is converted to uppercase with underscores:
 - `platform-user-service` → `PLATFORM_USER_SERVICE`
-- `platform-file-management-service` → `PLATFORM_FILE_MANAGEMENT_SERVICE`
 
 ### Required GitHub Token Permissions
 
@@ -137,10 +152,11 @@ on:
 
 jobs:
   deploy:
-    uses: serenity-flow/infrastructure/.github/workflows/microservice-deploy.yml@main
+    uses: serenitiflow/infrastructure/.github/workflows/microservice-deploy.yml@main
     with:
       service-name: platform-user-service
       java-version: '17'
+      aws-role-arn: ${{ vars.AWS_ROLE_ARN }}
     secrets: inherit
 ```
 
@@ -155,13 +171,20 @@ jobs:
 | `info-endpoint-path` | Version info endpoint path | `/actuator/info` | No |
 | `deploy-timeout-minutes` | Deployment wait timeout | `10` | No |
 | `health-check-timeout-minutes` | Health check timeout | `5` | No |
+| `eks-cluster-name` | Shared EKS cluster name | `serenity-shared-cluster` | No |
+| `eks-namespace-dev` | Kubernetes namespace for dev | `dev-serenity` | No |
+| `eks-namespace-prod` | Kubernetes namespace for prod | `prod-serenity` | No |
+| `eks-aws-region` | AWS region for EKS | `eu-central-1` | No |
+| `aws-role-arn` | AWS IAM role ARN for GitHub Actions OIDC | - | **Yes** |
 
 **Jobs:**
-- `validate` - Validates required secrets
+- `validate` - Validates required configuration
 - `build` - Builds and tests with Gradle
 - `build-image` - Builds and pushes Docker image to GHCR
-- `deploy-dev` - Deploys to Coolify development environment
-- `deploy-prod` - Deploys to Coolify production environment (tag pushes only)
+- `deploy-dev` - Deploys to Coolify development environment *(deprecated)*
+- `deploy-prod` - Deploys to Coolify production environment (tag pushes only) *(deprecated)*
+- `deploy-dev-eks` - Deploys to EKS development environment
+- `deploy-prod-eks` - Deploys to EKS production environment (tag pushes only)
 
 ### Using Composite Actions
 
@@ -171,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: serenity-flow/infrastructure/cicd/actions/gradle-build@main
+      - uses: serenitiflow/infrastructure/cicd/actions/gradle-build@main
         with:
           java-version: '17'
           github-actor: ${{ github.actor }}

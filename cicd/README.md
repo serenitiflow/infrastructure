@@ -10,7 +10,7 @@ Builds a Gradle project and uploads artifacts.
 
 **Example:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-build@main
+- uses: serenitiflow/infrastructure/cicd/actions/gradle-build@main
   with:
     java-version: '17'
     artifact-name: 'build-artifacts'
@@ -38,7 +38,7 @@ Runs Gradle tests and uploads results.
 
 **Example:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-test@main
+- uses: serenitiflow/infrastructure/cicd/actions/gradle-test@main
   with:
     java-version: '17'
     artifact-name: 'test-results'
@@ -66,7 +66,7 @@ Publishes Gradle artifacts to GitHub Packages.
 
 **Example - SNAPSHOT:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-publish@main
+- uses: serenitiflow/infrastructure/cicd/actions/gradle-publish@main
   with:
     github-actor: ${{ github.actor }}
     github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -74,7 +74,7 @@ Publishes Gradle artifacts to GitHub Packages.
 
 **Example - Release:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-publish@main
+- uses: serenitiflow/infrastructure/cicd/actions/gradle-publish@main
   with:
     release-version: '1.0.0'
     github-actor: ${{ github.actor }}
@@ -98,7 +98,7 @@ Publishes Maven artifacts to GitHub Packages.
 
 **Example - SNAPSHOT:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/maven-publish@main
+- uses: serenitiflow/infrastructure/cicd/actions/maven-publish@main
   with:
     github-actor: ${{ github.actor }}
     github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -106,7 +106,7 @@ Publishes Maven artifacts to GitHub Packages.
 
 **Example - Release:**
 ```yaml
-- uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/maven-publish@main
+- uses: serenitiflow/infrastructure/cicd/actions/maven-publish@main
   with:
     release-version: '1.0.0'
     github-actor: ${{ github.actor }}
@@ -146,8 +146,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-build@main
-      - uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-test@main
+      - uses: serenitiflow/infrastructure/cicd/actions/gradle-build@main
+      - uses: serenitiflow/infrastructure/cicd/actions/gradle-test@main
 
   publish:
     needs: build
@@ -157,7 +157,7 @@ jobs:
       - name: Extract version
         if: startsWith(github.ref, 'refs/tags/v')
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-      - uses: serenity-flow/serenity-flow/infrastructure/cicd/actions/gradle-publish@main
+      - uses: serenitiflow/infrastructure/cicd/actions/gradle-publish@main
         with:
           release-version: ${{ env.VERSION }}
           github-actor: ${{ github.actor }}

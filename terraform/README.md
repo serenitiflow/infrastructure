@@ -283,13 +283,15 @@ The `shared/eks` stack creates a GitHub Actions OIDC provider and IAM role. This
 3. AWS validates the token and issues temporary STS credentials
 4. The workflow uses `kubectl` to deploy to EKS
 
-### Required repository secret
+### Required repository configuration
 
 Each service repo that deploys to EKS must set:
 
-| Secret | Value                                                      | Source |
-|--------|------------------------------------------------------------|--------|
-| `AWS_ROLE_ARN` | `arn:aws:iam::<account>:role/serenity-github-actions-role` | `terraform output github_actions_role_arn` |
+| Setting | Type | Value | Source |
+|---------|------|-------|--------|
+| `AWS_ROLE_ARN` | **Repository Variable** | `arn:aws:iam::<account>:role/serenity-github-actions-role` | `terraform output github_actions_role_arn` |
+
+> **Note:** `AWS_ROLE_ARN` is a repository **variable** (`vars`), not a secret. It is passed to the reusable workflow via the `with` block, where the `secrets` context is unavailable.
 
 ### Service repo structure
 
@@ -478,9 +480,17 @@ Run bootstrap first for the target environment.
 
 ### "Error: failed to assume role"
 If GitHub Actions fails with `AccessDenied` on `sts:AssumeRoleWithWebIdentity`:
-1. Verify the `AWS_ROLE_ARN` secret in the service repo matches `terraform output github_actions_role_arn`
+1. Verify `AWS_ROLE_ARN` is set as a **repository variable** (not a secret) in the service repo, and matches `terraform output github_actions_role_arn`
 2. Check the workflow has `permissions: id-token: write`
-3. Ensure the repo is listed in the `allowed_repositories` condition of the IAM role trust policy
+3. Ensure the repo is listed in the `allowed_repositories` condition of the IAM role trust policy (current: `repo:serenitiflow/*`)
+4. Verify the OIDC provider `token.actions.githubusercontent.com` exists in the AWS account
+
+### "Error: dial tcp ... i/o timeout" (kubectl)
+If `kubectl` or the workflow fails to connect to the EKS API server:
+1. Verify the cluster endpoint is reachable: `aws eks describe-cluster --name serenity-shared-cluster`
+2. If the endpoint is private-only, enable public access by setting `cluster_endpoint_public_access = true` in `shared/eks/terraform.tfvars`
+3. If public access is enabled but limited by CIDR, ensure GitHub Actions IPs are allowed (or use `allowed_public_cidrs = ["0.0.0.0/0"]` for dev)
+4. The endpoint still requires valid AWS credentials — being publicly reachable does not mean it's publicly accessible
 
 ### Destroying a Stack
 Because stacks are independent, you can destroy them individually:
@@ -516,7 +526,7 @@ cd shared/networking && terraform destroy
 | Requirement | Implementation |
 |-------------|----------------|
 | SEC-1 | Aurora scheduler IAM policy scoped to specific cluster |
-| SEC-2 | EKS public endpoint disabled by default (dev enables explicitly) |
+| SEC-2 | EKS public endpoint enabled for dev with IAM-based access control |
 | SEC-3 | Separate S3 bucket for access logs |
 | SEC-4 | TLS enforcement on all S3 buckets |
 | SEC-5 | Restricted KMS key policies (no wildcard kms:*) |

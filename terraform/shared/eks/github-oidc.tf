@@ -4,8 +4,7 @@ module "github_oidc" {
   project_name = var.project_name
 
   allowed_repositories = [
-    "repo:serenity-flow/serenity-umbrella:ref:refs/heads/main",
-    "repo:serenity-flow/*:ref:refs/heads/main",
+    "repo:serenitiflow/*",
   ]
 
   tags = {
