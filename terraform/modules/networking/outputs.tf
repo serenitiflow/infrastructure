@@ -39,6 +39,11 @@ output "public_route_table_ids" {
   value       = module.vpc.public_route_table_ids
 }
 
+output "database_route_table_ids" {
+  description = "Database route table IDs"
+  value       = module.vpc.database_route_table_ids
+}
+
 output "nat_gateway_id" {
   description = "NAT Gateway ID (if enabled)"
   value       = var.nat_gateway_enabled ? module.vpc.nat_gateway_ids[0] : null

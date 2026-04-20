@@ -46,12 +46,6 @@ variable "aurora_max_capacity" {
   default     = 2
 }
 
-variable "redis_node_type" {
-  description = "ElastiCache node type"
-  type        = string
-  default     = "cache.t4g.micro"
-}
-
 variable "aurora_scheduler_enabled" {
   description = "Enable Aurora scheduled stop/start"
   type        = bool
@@ -62,12 +56,6 @@ variable "backup_retention_period" {
   description = "Aurora backup retention period in days"
   type        = number
   default     = 3
-}
-
-variable "snapshot_retention_limit" {
-  description = "Redis snapshot retention limit in days"
-  type        = number
-  default     = 1
 }
 
 variable "allowed_admin_cidrs" {

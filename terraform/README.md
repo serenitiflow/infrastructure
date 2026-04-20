@@ -18,10 +18,12 @@ terraform/
 │   │   └── eks/
 │   ├── dev/                # Development environment
 │   │   ├── 01-networking/
-│   │   └── 03-databases/
+│   │   ├── 03-aurora/
+│   │   └── 04-redis/
 │   └── prod/               # Production environment
 │       ├── 01-networking/
-│       └── 03-databases/
+│       ├── 03-aurora/
+│       └── 04-redis/
 └── scripts/
     └── init-env.sh         # Helper to initialize new environments
 ```
@@ -33,7 +35,7 @@ terraform/
 |                        AWS Account                          |
 |                                                             |
 |  +---------------------+     +---------------------+       |
-|  |  01-networking      |     |  02-eks             |       |
+|  |  01-networking      |     |  common/eks         |       |
 |  |  (separate state)   |     |  (separate state)   |       |
 |  |                     |     |                     |       |
 |  |  - VPC 10.0.0.0/16  |     |  - EKS Cluster      |       |
@@ -49,16 +51,27 @@ terraform/
 |             |                           |                  |
 |             v                           v                  |
 |  +---------------------+     +---------------------+       |
-|  |  03-databases       |     |  Application        |       |
+|  |  03-aurora          |     |  Application        |       |
 |  |  (separate state)   |     |  (reads SSM params) |       |
 |  |                     |     |                     |       |
 |  |  - Aurora PostgreSQL|     |  - DB credentials   |       |
-|  |  - ElastiCache Redis|     |  - Redis endpoint   |       |
-|  |  - Secrets Manager  |     |  - EKS kubeconfig   |       |
-|  |                     |     |                     |       |
+|  |  - Secrets Manager  |     |  - Redis endpoint   |       |
+|  |                     |     |  - EKS kubeconfig   |       |
 |  |  Reads EKS SG from  |     |                     |       |
 |  |  SSM for SG rules   |     |                     |       |
 |  +---------------------+     +---------------------+       |
+|             |                                              |
+|             v                                              |
+|  +---------------------+                                   |
+|  |  04-redis           |                                   |
+|  |  (separate state)   |                                   |
+|  |                     |                                   |
+|  |  - ElastiCache Redis|                                   |
+|  |  - Secrets Manager  |                                   |
+|  |                     |                                   |
+|  |  Reads EKS SG from  |                                   |
+|  |  SSM for SG rules   |                                   |
+|  +---------------------+                                   |
 |                                                             |
 |  Each stack has its own S3 state file and DynamoDB lock.   |
 |  Stacks communicate via AWS SSM Parameter Store (not       |
@@ -75,16 +88,18 @@ terraform/
 | Stack | Responsibility | Deploy Frequency | Blast Radius |
 |-------|---------------|------------------|--------------|
 | `01-networking` | VPC, subnets, NAT | Rarely (infrastructure) | Isolated to network |
-| `02-eks` | Kubernetes cluster | Occasionally (upgrades) | Isolated to compute |
-| `03-databases` | Aurora, Redis, Secrets | Frequently (app changes) | Isolated to data |
+| `common/eks` | Shared Kubernetes cluster | Occasionally (upgrades) | Isolated to compute |
+| `03-aurora` | Aurora PostgreSQL, Secrets | Frequently (schema changes) | Isolated to data |
+| `04-redis` | ElastiCache Redis, Secrets | Rarely (infra changes) | Isolated to cache |
 
 **Cross-Stack Communication via SSM:**
 
 Instead of `terraform_remote_state` (which creates hard dependencies), each stack writes its outputs to AWS SSM Parameter Store:
 
-- **Networking** writes: `vpc_id`, `private_subnet_ids`, `database_subnet_group_name`, `cluster_security_group_id`
+- **Networking** writes: `vpc_id`, `private_subnet_ids`, `database_subnet_group_name`, `database_route_table_ids`
 - **EKS** writes: `cluster_name`, `cluster_endpoint`, `cluster_security_group_id`, `oidc_provider_arn`
-- **Databases** writes: `database_host`, `database_port`, `redis_host`, `redis_port`, `secret_arns`
+- **Aurora** writes: `database_host`, `database_port`, `database_secret_arn`
+- **Redis** writes: `redis_host`, `redis_port`, `redis_secret_arn`
 
 Downstream stacks read these values via `data.aws_ssm_parameter`. This means:
 - You can destroy and recreate EKS without touching the database
@@ -96,6 +111,41 @@ Downstream stacks read these values via `data.aws_ssm_parameter`. This means:
 - AWS CLI configured (`aws configure` or env vars)
 - Terraform >= 1.5.0
 - Bash (for helper scripts)
+
+## Dev-Only Deployment (Start Here)
+
+If you are starting with **dev only** and prod will be deployed later, use this simplified order:
+
+```bash
+# 1. Bootstrap (run once)
+cd bootstrap && terraform init && terraform apply -var="environment=dev"
+
+# 2. Dev networking
+cd envs/dev/01-networking && terraform init && terraform apply
+
+# 3. Shared EKS cluster
+cd envs/common/eks && terraform init && terraform apply
+
+# 4. Dev Aurora
+cd envs/dev/03-aurora && terraform init && terraform apply
+
+# 5. Dev Redis
+cd envs/dev/04-redis && terraform init && terraform apply
+
+# 6. Dev IRSA only (skip prod)
+cd envs/common/irsa && terraform init && terraform apply
+```
+
+**Prod-related stacks are disabled by default:**
+- `dev/vpc-peering-prod`: `enabled = false` — no prod references are read
+- `common/irsa`: `create_prod_irsa = false` — no prod IAM role is created
+
+When you are ready to deploy prod, flip these flags and apply in order:
+1. `prod/01-networking`
+2. `dev/vpc-peering-prod` (set `enabled = true`)
+3. `prod/03-aurora`
+4. `prod/04-redis`
+5. `common/irsa` (set `create_prod_irsa = true`)
 
 ## Step-by-Step Creation
 
@@ -143,7 +193,7 @@ terraform apply
 
 **Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/networking/`.
 
-### Step 3: Deploy EKS (02-eks)
+### Step 3: Deploy EKS (common/eks)
 
 EKS depends on networking (reads VPC and subnet IDs from SSM).
 
@@ -168,25 +218,16 @@ aws eks update-kubeconfig --region eu-central-1 --name serenity-shared-cluster
 kubectl get nodes
 ```
 
-### Connect with Lens (or kubectl)
-
-After `terraform apply`, configure kubeconfig and verify access:
-
-```bash
-aws eks update-kubeconfig --region eu-central-1 --name serenity-shared-cluster
-kubectl get nodes
-```
-
 **Lens users:** Open Lens → Add Cluster → it will auto-detect the context from your kubeconfig.
 
 **Important:** The `kubernetes` provider authenticates to EKS using a short-lived AWS token. Your AWS credentials must be active when running `terraform apply`. On the **first** run on a fresh cluster, the data sources may fail because the cluster doesn't exist yet; run `terraform apply -target=module.eks` first, then `terraform apply`.
 
-### Step 4: Deploy Databases (03-databases)
+### Step 4: Deploy Aurora (03-aurora)
 
-Databases depend on both networking (subnets, VPC) and EKS (security group for ingress rules).
+Aurora depends on networking (subnets, VPC) and EKS (security group for ingress rules).
 
 ```bash
-cd envs/dev/03-databases
+cd envs/dev/03-aurora
 
 terraform init
 terraform plan
@@ -195,13 +236,49 @@ terraform apply
 
 **What this creates:**
 - Aurora Serverless v2 (PostgreSQL 16.4, 0.5-2 ACU)
-- ElastiCache Redis 7.0 (cache.t4g.micro)
 - Secrets Manager with auto-generated passwords
 - SSM parameters with connection details
+- Aurora scheduler (dev only, stops cluster at night)
 
-**Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/database/` and `/serenity/dev/redis/`.
+**Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/database/`.
 
-### Step 5: Verify Cross-Stack Communication
+### Step 5: Deploy Redis (04-redis)
+
+Redis depends on networking (database subnets, VPC) and EKS (security group for ingress rules).
+
+```bash
+cd envs/dev/04-redis
+
+terraform init
+terraform plan
+terraform apply
+```
+
+**What this creates:**
+- ElastiCache Redis 7.0 (cache.t4g.micro)
+- Secrets Manager with auto-generated auth token
+- SSM parameters with connection details
+
+**Verify:** Check the SSM parameters in AWS Console under `/serenity/dev/redis/`.
+
+### Step 6: Deploy IRSA (common/irsa)
+
+IRSA depends on EKS (reads OIDC issuer URL from SSM).
+
+```bash
+cd envs/common/irsa
+
+terraform init
+terraform plan
+terraform apply
+```
+
+**What this creates:**
+- IAM role for dev namespace service account
+- IAM role for prod namespace service account (when `create_prod_irsa = true`)
+- SSM parameters with role ARNs for CI/CD
+
+### Step 7: Verify Cross-Stack Communication
 
 Confirm all SSM parameters exist:
 
@@ -209,7 +286,7 @@ Confirm all SSM parameters exist:
 aws ssm get-parameters-by-path --path "/serenity/dev" --recursive
 ```
 
-You should see parameters from all 3 stacks under `/serenity/dev/networking/`, `/serenity/dev/eks/`, `/serenity/dev/database/`, and `/serenity/dev/redis/`.
+You should see parameters from all stacks under `/serenity/dev/networking/`, `/serenity/shared/eks/`, `/serenity/dev/database/`, and `/serenity/dev/redis/`.
 
 ## Environment Isolation
 
@@ -223,7 +300,11 @@ Each environment has **completely isolated**:
 |-------------|----------------|-------------------|
 | common | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `common/eks/terraform.tfstate` |
 | dev | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `dev/networking/terraform.tfstate` |
+| dev | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `dev/aurora/terraform.tfstate` |
+| dev | `serenity-dev-terraform-v2-state-eu-central-1-123...` | `dev/redis/terraform.tfstate` |
 | prod | `serenity-prod-terraform-v2-state-eu-central-1-123...` | `prod/networking/terraform.tfstate` |
+| prod | `serenity-prod-terraform-v2-state-eu-central-1-123...` | `prod/aurora/terraform.tfstate` |
+| prod | `serenity-prod-terraform-v2-state-eu-central-1-123...` | `prod/redis/terraform.tfstate` |
 
 ## Environment Configuration Differences
 
@@ -245,12 +326,14 @@ Each environment has **completely isolated**:
 
 # Review and edit the generated tfvars
 # envs/staging/01-networking/terraform.tfvars
-# envs/staging/03-databases/terraform.tfvars
+# envs/staging/03-aurora/terraform.tfvars
+# envs/staging/04-redis/terraform.tfvars
 
 # Deploy in order:
 cd envs/common/eks && terraform init && terraform apply
 cd envs/staging/01-networking && terraform init && terraform apply
-cd ../03-databases && terraform init && terraform apply
+cd ../03-aurora && terraform init && terraform apply
+cd ../04-redis && terraform init && terraform apply
 ```
 
 ## Resource Tagging
@@ -291,7 +374,7 @@ This produces `App = myapp-dev` or `App = myapp-prod` on all resources.
 ## Troubleshooting
 
 ### "Error: no matching EC2 Subnet found"
-The EKS or databases stack cannot find the VPC/subnets. Make sure `01-networking` was applied first and SSM parameters exist.
+The EKS or Aurora/Redis stack cannot find the VPC/subnets. Make sure `01-networking` was applied first and SSM parameters exist.
 
 ### "Error: Backend configuration changed"
 If you modify `backend.tf`, run `terraform init -reconfigure`.
@@ -303,11 +386,12 @@ Run bootstrap first for the target environment.
 Because stacks are independent, you can destroy them individually:
 
 ```bash
-# Destroy just EKS (databases and networking stay running)
+# Destroy just EKS (Aurora, Redis, and networking stay running)
 cd envs/common/eks && terraform destroy
 
 # Destroy everything in reverse order
-cd envs/dev/03-databases && terraform destroy
+cd envs/dev/04-redis && terraform destroy
+cd envs/dev/03-aurora && terraform destroy
 cd envs/dev/01-networking && terraform destroy
 ```
 

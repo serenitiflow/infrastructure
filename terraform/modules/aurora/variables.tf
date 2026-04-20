@@ -60,17 +60,6 @@ variable "aurora_max_capacity" {
   }
 }
 
-variable "redis_node_type" {
-  description = "ElastiCache node type"
-  type        = string
-  default     = "cache.t4g.micro"
-
-  validation {
-    condition     = startswith(var.redis_node_type, "cache.")
-    error_message = "Redis node type must be a valid ElastiCache node type starting with 'cache.'."
-  }
-}
-
 variable "aurora_scheduler_enabled" {
   description = "Enable Aurora scheduled stop/start"
   type        = bool
@@ -86,12 +75,6 @@ variable "backup_retention_period" {
     condition     = var.backup_retention_period >= 1 && var.backup_retention_period <= 35
     error_message = "Backup retention period must be between 1 and 35 days."
   }
-}
-
-variable "snapshot_retention_limit" {
-  description = "Redis snapshot retention limit in days"
-  type        = number
-  default     = 1
 }
 
 variable "allowed_admin_cidrs" {

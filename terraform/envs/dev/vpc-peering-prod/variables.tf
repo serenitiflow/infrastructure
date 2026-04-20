@@ -21,3 +21,9 @@ variable "aws_region" {
   type        = string
   default     = "eu-central-1"
 }
+
+variable "enabled" {
+  description = "Enable VPC peering to prod (set to true only when prod networking exists)"
+  type        = bool
+  default     = false
+}

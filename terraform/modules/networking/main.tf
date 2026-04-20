@@ -156,6 +156,17 @@ resource "aws_ssm_parameter" "public_route_table_ids" {
   })
 }
 
+resource "aws_ssm_parameter" "database_route_table_ids" {
+  name      = "/${var.project_name}/${var.environment}/networking/database_route_table_ids"
+  type      = "String"
+  value     = jsonencode(module.vpc.database_route_table_ids)
+  overwrite = true
+
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-database-rt-ids"
+  })
+}
+
 resource "aws_ssm_parameter" "nat_gateway_id" {
   name      = "/${var.project_name}/${var.environment}/networking/nat_gateway_id"
   type      = "String"

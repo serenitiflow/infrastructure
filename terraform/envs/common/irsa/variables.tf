@@ -21,3 +21,9 @@ variable "aws_region" {
   type        = string
   default     = "eu-central-1"
 }
+
+variable "create_prod_irsa" {
+  description = "Create IRSA role for prod namespace (disable for dev-only deployments)"
+  type        = bool
+  default     = false
+}

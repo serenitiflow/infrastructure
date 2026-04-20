@@ -13,8 +13,9 @@ module "irsa_dev" {
   oidc_issuer_url = data.aws_ssm_parameter.oidc_issuer_url.value
 }
 
-# IRSA for prod namespace
+# IRSA for prod namespace — created only when prod is ready
 module "irsa_prod" {
+  count  = var.create_prod_irsa ? 1 : 0
   source = "../../../modules/irsa"
 
   project_name    = var.project_name
@@ -38,9 +39,11 @@ resource "aws_ssm_parameter" "dev_irsa_role_arn" {
 }
 
 resource "aws_ssm_parameter" "prod_irsa_role_arn" {
+  count = var.create_prod_irsa ? 1 : 0
+
   name  = "/${var.project_name}/prod/eks/irsa_services_role_arn"
   type  = "String"
-  value = module.irsa_prod.role_arn
+  value = module.irsa_prod[0].role_arn
 
   tags = {
     Name        = "${var.project_name}-prod-irsa-role-arn"
