@@ -10,3 +10,5 @@ aurora_scheduler_enabled = true
 backup_retention_period = 1
 # Admin access to databases from local machine
 allowed_admin_cidrs = ["76.147.65.241/32"]
+# Dev: Expose Aurora publicly for local access (security: restricted to allowed_admin_cidrs)
+publicly_accessible = true

@@ -82,3 +82,9 @@ variable "allowed_admin_cidrs" {
   type        = list(string)
   default     = []
 }
+
+variable "publicly_accessible" {
+  description = "Make Aurora publicly accessible (dev only - uses public subnets)"
+  type        = bool
+  default     = false
+}

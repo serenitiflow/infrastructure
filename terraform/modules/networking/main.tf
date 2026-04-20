@@ -68,6 +68,17 @@ resource "aws_db_subnet_group" "prod" {
   })
 }
 
+# Public DB subnet group for dev (allows publicly_accessible RDS/Aurora)
+resource "aws_db_subnet_group" "dev_public" {
+  name       = "${var.project_name}-dev-db-subnet-group-public"
+  subnet_ids = module.vpc.public_subnets
+  tags = merge(module.common_tags.tags, {
+    Environment = "dev"
+    Name        = "${var.project_name}-dev-db-subnet-group-public"
+    Type        = "public"
+  })
+}
+
 # NAT Instance resources (inlined from nat-instance module)
 # Cost: ~$3.50/month (t4g.nano) vs ~$32.40/month (NAT Gateway)
 # Savings: ~$29/month for dev environments
@@ -340,6 +351,9 @@ module "ssm_parameters" {
     }
     "/${var.project_name}/prod/networking/database_subnet_group_name" = {
       value = aws_db_subnet_group.prod.name
+    }
+    "/${var.project_name}/dev/networking/public_database_subnet_group_name" = {
+      value = aws_db_subnet_group.dev_public.name
     }
   }
 }

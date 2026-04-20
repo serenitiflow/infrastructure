@@ -19,20 +19,20 @@ allowed_public_cidrs           = ["76.147.65.241/32"]
 # Dev-only deployment: disable prod IRSA until prod is ready
 create_prod_irsa = false
 
-# Access Entries - add IAM roles/users that need kubectl / Lens access
+# Access Entries - add IAM roles/users that need kubectl / Lens / AWS Console access
 # Required for anyone other than the cluster creator to connect
-# Example:
-# access_entries = {
-#   admin-role = {
-#     principal_arn = "arn:aws:iam::692046683886:role/YourIAMRole"
-#     type          = "STANDARD"
-#     policy_associations = {
-#       admin = {
-#         policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-#         access_scope = {
-#           type = "cluster"
-#         }
-#       }
-#     }
-#   }
-# }
+# SECURITY: Replace with your specific IAM role/user; root is used here for initial setup only
+access_entries = {
+  root-admin = {
+    principal_arn = "arn:aws:iam::692046683886:root"
+    type          = "STANDARD"
+    policy_associations = {
+      admin = {
+        policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+        access_scope = {
+          type = "cluster"
+        }
+      }
+    }
+  }
+}

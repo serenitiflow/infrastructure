@@ -44,7 +44,7 @@ module "aurora" {
   master_password = module.database_common.password
 
   vpc_id               = data.aws_ssm_parameter.vpc_id.value
-  db_subnet_group_name = data.aws_ssm_parameter.database_subnet_group_name.value
+  db_subnet_group_name = var.publicly_accessible ? data.aws_ssm_parameter.public_database_subnet_group_name[0].value : data.aws_ssm_parameter.database_subnet_group_name.value
 
   create_security_group = true
   security_group_rules = {
@@ -65,7 +65,7 @@ module "aurora" {
   instances = {
     writer = {
       instance_class               = var.aurora_instance_class
-      publicly_accessible          = false
+      publicly_accessible          = var.publicly_accessible
       performance_insights_enabled = var.environment == "prod"
     }
   }

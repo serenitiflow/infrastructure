@@ -34,20 +34,21 @@ module "elasticache" {
   vpc_id            = data.aws_ssm_parameter.vpc_id.value
 
   create_security_group = true
-  security_group_rules = {
+  security_group_rules = merge({
     eks_ingress = {
       referenced_security_group_id = data.aws_ssm_parameter.cluster_security_group_id.value
       from_port                    = 6379
       to_port                      = 6379
       description                  = "Redis from EKS"
     }
+    }, length(var.allowed_admin_cidrs) > 0 ? {
     admin_ingress = {
-      cidr_blocks = var.allowed_admin_cidrs
+      cidr_ipv4   = var.allowed_admin_cidrs[0]
       from_port   = 6379
       to_port     = 6379
       description = "Redis from admin IPs"
     }
-  }
+  } : {})
 
   at_rest_encryption_enabled = true
   transit_encryption_enabled = true

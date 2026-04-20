@@ -44,6 +44,11 @@ output "prod_database_subnet_group_name" {
   value       = aws_db_subnet_group.prod.name
 }
 
+output "dev_public_database_subnet_group_name" {
+  description = "Dev public database subnet group name (for publicly_accessible RDS)"
+  value       = aws_db_subnet_group.dev_public.name
+}
+
 output "private_route_table_ids" {
   description = "Private route table IDs"
   value       = module.vpc.private_route_table_ids
