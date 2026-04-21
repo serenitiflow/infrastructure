@@ -329,7 +329,7 @@ Once the AWS Load Balancer Controller is installed, Kubernetes `Ingress` resourc
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: platform-user-service
+  name: platform-identity-service
   namespace: dev-serenity
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -349,7 +349,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: platform-user-service
+                name: platform-identity-service
                 port:
                   number: 8080
 ```
@@ -427,7 +427,7 @@ config/k8s/dev/
   └── secret.yaml.template             # Secret template (not committed)
 ```
 
-Example deployment manifests are in `platform-user-service/config/k8s/dev/`.
+Example deployment manifests are in `platform-identity-service/config/k8s/dev/`.
 
 ### K8s secrets (one-time setup)
 
@@ -436,7 +436,7 @@ Create the secret manually from your local machine:
 ```bash
 aws eks update-kubeconfig --name serenity-shared-cluster --region eu-central-1
 
-kubectl create secret generic platform-user-service \
+kubectl create secret generic platform-identity-service \
   --namespace=dev-serenity \
   --from-literal=DATABASE_URL="..." \
   --from-literal=DATABASE_USERNAME="..." \
