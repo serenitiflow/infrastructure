@@ -85,7 +85,7 @@ When using the reusable workflows and actions, the following secrets should be c
 
 When using the `microservice-deploy.yml` workflow, services must configure:
 
-| Setting | Type | Example for `platform-user-service` | Description |
+| Setting | Type | Example for `platform-identity-service` | Description |
 |---------|------|-------------------------------------|-------------|
 | `AWS_ROLE_ARN` | **Repository Variable** | `arn:aws:iam::692046683886:role/serenity-github-actions-role` | IAM role for GitHub Actions OIDC authentication |
 
@@ -109,7 +109,7 @@ Coolify deployment is being migrated to EKS. These secrets are maintained for ba
 | `SERVICE_URL_{SERVICE}_{ENV}` | `SERVICE_URL_PLATFORM_USER_SERVICE_DEV` | Service public URL for health checks |
 
 **Secret naming transformation:** Service name is converted to uppercase with underscores:
-- `platform-user-service` → `PLATFORM_USER_SERVICE`
+- `platform-identity-service` → `PLATFORM_USER_SERVICE`
 
 ### Required GitHub Token Permissions
 
@@ -154,7 +154,7 @@ jobs:
   deploy:
     uses: serenitiflow/infrastructure/.github/workflows/microservice-deploy.yml@main
     with:
-      service-name: platform-user-service
+      service-name: platform-identity-service
       java-version: '17'
       aws-role-arn: ${{ vars.AWS_ROLE_ARN }}
     secrets: inherit

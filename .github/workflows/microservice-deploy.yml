@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       service-name:
-        description: 'Service identifier (kebab-case, e.g., platform-user-service)'
+        description: 'Service identifier (kebab-case, e.g., platform-identity-service)'
         required: true
         type: string
       java-version:

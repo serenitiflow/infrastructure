@@ -1,5 +1,5 @@
 -- =============================================================================
--- USERS DATABASE (platform-user-service)
+-- USERS DATABASE (platform-identity-service)
 -- =============================================================================
 
 -- Create database (run while connected to postgres or another default db)
