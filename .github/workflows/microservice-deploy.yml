@@ -262,10 +262,10 @@ jobs:
   deploy-dev-eks:
     name: Deploy to Development (EKS)
     needs: build-image
+    # Main-branch only: EKS deploys are not allowed from feature branches or tags.
     if: |
-      github.event_name != 'pull_request' && (
-        github.ref == 'refs/heads/main' ||
-        github.ref == 'refs/heads/master' ||
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && (
+        github.event_name == 'push' ||
         (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'development')
       )
     runs-on: ubuntu-latest
@@ -291,30 +291,27 @@ jobs:
           aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
           echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
 
-      - name: Apply Kubernetes manifests
-        run: |
-          echo "Applying manifests from config/k8s/dev/..."
-          kubectl apply -f config/k8s/dev/
-
       - name: Deploy to EKS
         id: deploy
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           DEPLOYMENT_NAME="${{ inputs.service-name }}"
           NAMESPACE="${{ inputs.eks-namespace-dev }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
           echo "Deploying to EKS..."
           echo "  Deployment: $DEPLOYMENT_NAME"
           echo "  Namespace:  $NAMESPACE"
-          echo "  Image:      $IMAGE"
+          echo "  Image tag:  $IMAGE_TAG"
           echo "  Cluster:    ${{ inputs.eks-cluster-name }}"
           echo ""
 
-          # Update deployment image to the built SHA-tagged image
-          kubectl set image deployment/$DEPLOYMENT_NAME -n $NAMESPACE $DEPLOYMENT_NAME=$IMAGE
+          # Apply manifests with IMAGE_TAG substituted. Loop per-file so multi-file
+          # layouts stay safe (avoids gluing docs across files without separators).
+          for f in config/k8s/dev/*.yaml; do
+            envsubst '${IMAGE_TAG}' < "$f" | kubectl apply -f -
+          done
 
-          # Restart deployment to pull new image
-          kubectl rollout restart deployment/$DEPLOYMENT_NAME -n $NAMESPACE
           kubectl rollout status deployment/$DEPLOYMENT_NAME -n $NAMESPACE --timeout=${{ inputs.deploy-timeout-minutes }}m
 
           echo "✓ EKS deployment completed"
@@ -360,11 +357,9 @@ jobs:
   deploy-prod-eks:
     name: Deploy to Production (EKS)
     needs: build-image
-    if: |
-      github.event_name != 'pull_request' && (
-        startsWith(github.ref, 'refs/tags/v') ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
-      )
+    # Manual-only AND main-branch only: prod deploys must be explicitly triggered
+    # via workflow_dispatch from main (or master).
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -388,30 +383,25 @@ jobs:
           aws eks update-kubeconfig --name ${{ inputs.eks-cluster-name }} --region ${{ inputs.eks-aws-region }}
           echo "kubeconfig configured for cluster: ${{ inputs.eks-cluster-name }}"
 
-      - name: Apply Kubernetes manifests
-        run: |
-          echo "Applying manifests from config/k8s/prod/..."
-          kubectl apply -f config/k8s/prod/
-
       - name: Deploy to EKS
         id: deploy
+        env:
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           DEPLOYMENT_NAME="${{ inputs.service-name }}"
           NAMESPACE="${{ inputs.eks-namespace-prod }}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
 
           echo "Deploying to EKS..."
           echo "  Deployment: $DEPLOYMENT_NAME"
           echo "  Namespace:  $NAMESPACE"
-          echo "  Image:      $IMAGE"
+          echo "  Image tag:  $IMAGE_TAG"
           echo "  Cluster:    ${{ inputs.eks-cluster-name }}"
           echo ""
 
-          # Update deployment image to the built SHA-tagged image
-          kubectl set image deployment/$DEPLOYMENT_NAME -n $NAMESPACE $DEPLOYMENT_NAME=$IMAGE
+          for f in config/k8s/prod/*.yaml; do
+            envsubst '${IMAGE_TAG}' < "$f" | kubectl apply -f -
+          done
 
-          # Restart deployment to pull new image
-          kubectl rollout restart deployment/$DEPLOYMENT_NAME -n $NAMESPACE
           kubectl rollout status deployment/$DEPLOYMENT_NAME -n $NAMESPACE --timeout=${{ inputs.deploy-timeout-minutes }}m
 
           echo "✓ EKS deployment completed"
