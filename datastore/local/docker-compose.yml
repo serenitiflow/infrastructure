@@ -37,6 +37,17 @@ services:
     networks:
       - serenityflow-network
 
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: serenityflow-mailhog
+    hostname: mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    restart: unless-stopped
+    networks:
+      - serenityflow-network
+
 volumes:
   postgres_data:
     driver: local
