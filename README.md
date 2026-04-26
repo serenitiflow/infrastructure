@@ -9,7 +9,7 @@ Reusable GitHub Actions workflows for centralized CI/CD pipelines.
 
 | Workflow | Description | Usage |
 |----------|-------------|-------|
-| `microservice-deploy.yml` | Reusable workflow for Java microservices deploying to **EKS** (Coolify deprecated) | Called by service repositories |
+| `microservice-deploy.yml` | Reusable workflow for Java microservices deploying to **EKS** | Called by service repositories |
 
 ### `cicd/`
 GitHub Actions reusable composite actions for CI/CD pipelines.
@@ -97,20 +97,6 @@ permissions:
   packages: write
 ```
 
-### Coolify Deployment Secrets (Deprecated)
-
-Coolify deployment is being migrated to EKS. These secrets are maintained for backward compatibility during the transition:
-
-| Secret Pattern | Example | Description |
-|----------------|---------|-------------|
-| `COOLIFY_URL_{ENV}` | `COOLIFY_URL_DEV` | Coolify instance URL |
-| `COOLIFY_API_TOKEN_{ENV}` | `COOLIFY_API_TOKEN_DEV` | Coolify API token |
-| `COOLIFY_APP_UUID_{SERVICE}_{ENV}` | `COOLIFY_APP_UUID_PLATFORM_USER_SERVICE_DEV` | Application UUID in Coolify |
-| `SERVICE_URL_{SERVICE}_{ENV}` | `SERVICE_URL_PLATFORM_USER_SERVICE_DEV` | Service public URL for health checks |
-
-**Secret naming transformation:** Service name is converted to uppercase with underscores:
-- `platform-identity-service` → `PLATFORM_USER_SERVICE`
-
 ### Required GitHub Token Permissions
 
 For workflows that publish artifacts, ensure the token has these permissions:
@@ -181,10 +167,8 @@ jobs:
 - `validate` - Validates required configuration
 - `build` - Builds and tests with Gradle
 - `build-image` - Builds and pushes Docker image to GHCR
-- `deploy-dev` - Deploys to Coolify development environment *(deprecated)*
-- `deploy-prod` - Deploys to Coolify production environment (tag pushes only) *(deprecated)*
-- `deploy-dev-eks` - Deploys to EKS development environment
-- `deploy-prod-eks` - Deploys to EKS production environment (tag pushes only)
+- `deploy-dev-eks` - Deploys to EKS development environment (push to main)
+- `deploy-prod-eks` - Deploys to EKS production environment (manual workflow_dispatch from main)
 
 ### Using Composite Actions
 
