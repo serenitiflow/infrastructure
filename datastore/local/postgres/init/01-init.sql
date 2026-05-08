@@ -30,32 +30,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO users_servic
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO users_service_user;
 
 -- =============================================================================
--- FILES DATABASE (platform-file-management-service)
--- =============================================================================
-
-CREATE DATABASE files;
-CREATE USER files_service_user WITH PASSWORD 'files_service_user';
-GRANT ALL PRIVILEGES ON DATABASE files TO files_service_user;
-
--- Connect to files database to configure schema
-\c files;
-
--- PostgreSQL 15+ fix
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-
--- Change owner of public schema to the service user
-ALTER SCHEMA public OWNER TO files_service_user;
-
--- Grant schema privileges
-GRANT ALL ON SCHEMA public TO files_service_user;
-GRANT USAGE, CREATE ON SCHEMA public TO files_service_user;
-
--- Set default privileges for future objects
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO files_service_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO files_service_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO files_service_user;
-
--- =============================================================================
 -- HUMANRESOURCES DATABASE (platform-hr-service)
 -- =============================================================================
 
